@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package users.v1;
+
+import "common/v1/common.proto";
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1;usersv1";
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_ORGANIZER = 1;
+  ROLE_CURATOR = 2;
+  ROLE_ADMIN = 3;
+  ROLE_ROOT = 4;
+}
+
+message User {
+  string id = 1;
+  int64 telegram_id = 2;
+  string name = 3;
+  string username = 4;
+  Role role = 5;
+  string group_id = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message GetOrCreateUserRequest {
+  int64 telegram_id = 1;
+  string name = 2;
+  string username = 3;
+}
+
+message GetOrCreateUserResponse {
+  User user = 1;
+  bool created = 2;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message GetUserByTelegramIDRequest {
+  int64 telegram_id = 1;
+}
+
+message ListUsersRequest {
+  common.v1.Pagination pagination = 1;
+  Role role_filter = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  common.v1.PageInfo page_info = 2;
+}
+
+message UpdateUserRoleRequest {
+  string id = 1;
+  Role role = 2;
+}
+
+message AssignCuratorGroupRequest {
+  string user_id = 1;
+  string group_id = 2;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+service UsersService {
+  rpc GetOrCreateUser(GetOrCreateUserRequest) returns (GetOrCreateUserResponse);
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc GetUserByTelegramID(GetUserByTelegramIDRequest) returns (User);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc UpdateUserRole(UpdateUserRoleRequest) returns (User);
+  rpc AssignCuratorGroup(AssignCuratorGroupRequest) returns (User);
+  rpc DeleteUser(DeleteUserRequest) returns (common.v1.SuccessResponse);
+}

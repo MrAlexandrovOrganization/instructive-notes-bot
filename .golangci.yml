@@ -1,0 +1,51 @@
+run:
+  timeout: 5m
+  go: "1.22"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - goimports
+    - misspell
+    - unconvert
+    - unparam
+    - prealloc
+    - noctx
+    - bodyclose
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - exportloopref
+    - nilerr
+    - nolintlint
+    - rowserrcheck
+    - sqlclosecheck
+    - tparallel
+    - wastedassign
+    - whitespace
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/mrralexandrov/instructive-notes-bot
+  errcheck:
+    check-type-assertions: true
+  govet:
+    enable-all: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - unparam
+    - path: gen/go/
+      linters:
+        - all
+  max-issues-per-linter: 0
+  max-same-issues: 0

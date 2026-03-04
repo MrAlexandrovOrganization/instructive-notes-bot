@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package participants.v1;
+
+import "common/v1/common.proto";
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/participants/v1;participantsv1";
+
+message Participant {
+  string id = 1;
+  string name = 2;
+  int64 telegram_id = 3;
+  string custom_identifier = 4;
+  string group_id = 5;
+  string group_name = 6;
+  string photo_media_id = 7;
+  int32 notes_count = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+message CreateParticipantRequest {
+  string name = 1;
+  int64 telegram_id = 2;
+  string custom_identifier = 3;
+  string group_id = 4;
+}
+
+message GetParticipantRequest {
+  string id = 1;
+}
+
+message ListParticipantsRequest {
+  common.v1.Pagination pagination = 1;
+  string group_id = 2;
+  string search = 3;
+}
+
+message ListParticipantsResponse {
+  repeated Participant participants = 1;
+  common.v1.PageInfo page_info = 2;
+}
+
+message UpdateParticipantRequest {
+  string id = 1;
+  string name = 2;
+  int64 telegram_id = 3;
+  string custom_identifier = 4;
+  string group_id = 5;
+}
+
+message DeleteParticipantRequest {
+  string id = 1;
+}
+
+message SetParticipantPhotoRequest {
+  string participant_id = 1;
+  string media_id = 2;
+}
+
+service ParticipantsService {
+  rpc CreateParticipant(CreateParticipantRequest) returns (Participant);
+  rpc GetParticipant(GetParticipantRequest) returns (Participant);
+  rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse);
+  rpc UpdateParticipant(UpdateParticipantRequest) returns (Participant);
+  rpc DeleteParticipant(DeleteParticipantRequest) returns (common.v1.SuccessResponse);
+  rpc SetParticipantPhoto(SetParticipantPhotoRequest) returns (Participant);
+}

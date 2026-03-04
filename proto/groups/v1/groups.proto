@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package groups.v1;
+
+import "common/v1/common.proto";
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/groups/v1;groupsv1";
+
+message Group {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string created_at = 4;
+}
+
+message CreateGroupRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message GetGroupRequest {
+  string id = 1;
+}
+
+message ListGroupsRequest {
+  common.v1.Pagination pagination = 1;
+}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+  common.v1.PageInfo page_info = 2;
+}
+
+message UpdateGroupRequest {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message DeleteGroupRequest {
+  string id = 1;
+}
+
+service GroupsService {
+  rpc CreateGroup(CreateGroupRequest) returns (Group);
+  rpc GetGroup(GetGroupRequest) returns (Group);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  rpc UpdateGroup(UpdateGroupRequest) returns (Group);
+  rpc DeleteGroup(DeleteGroupRequest) returns (common.v1.SuccessResponse);
+}

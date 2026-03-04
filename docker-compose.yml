@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: instructive_notes_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-instructive_notes}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  core:
+    build:
+      context: .
+      dockerfile: core/Dockerfile
+    container_name: instructive_notes_core
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-instructive_notes}?sslmode=disable
+      GRPC_PORT: ${GRPC_PORT:-50051}
+      MEDIA_DIR: /data/media
+      MAX_GRPC_MSG_SIZE: ${MAX_GRPC_MSG_SIZE:-52428800}
+    volumes:
+      - media_data:/data/media
+    ports:
+      - "${GRPC_PORT:-50051}:50051"
+
+  telegram:
+    build:
+      context: .
+      dockerfile: frontends/telegram/Dockerfile
+    container_name: instructive_notes_telegram
+    restart: unless-stopped
+    depends_on:
+      - core
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      ROOT_TELEGRAM_ID: ${ROOT_TELEGRAM_ID}
+      CORE_GRPC_ADDR: core:${GRPC_PORT:-50051}
+
+volumes:
+  postgres_data:
+  media_data:

@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package media.v1;
+
+import "common/v1/common.proto";
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/media/v1;mediav1";
+
+message Media {
+  string id = 1;
+  string file_path = 2;
+  string mime_type = 3;
+  string original_name = 4;
+  int64 size_bytes = 5;
+  string created_at = 6;
+}
+
+message UploadMediaRequest {
+  bytes data = 1;
+  string mime_type = 2;
+  string original_name = 3;
+}
+
+message GetMediaRequest {
+  string id = 1;
+}
+
+message GetMediaResponse {
+  Media media = 1;
+  bytes data = 2;
+}
+
+message DeleteMediaRequest {
+  string id = 1;
+}
+
+service MediaService {
+  rpc UploadMedia(UploadMediaRequest) returns (Media);
+  rpc GetMedia(GetMediaRequest) returns (GetMediaResponse);
+  rpc DeleteMedia(DeleteMediaRequest) returns (common.v1.SuccessResponse);
+}

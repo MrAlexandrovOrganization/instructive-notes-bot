@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package common.v1;
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1;commonv1";
+
+message Empty {}
+
+message SuccessResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message Pagination {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message PageInfo {
+  string next_cursor = 1;
+  bool has_next = 2;
+  int32 total = 3;
+}

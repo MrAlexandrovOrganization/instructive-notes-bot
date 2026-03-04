@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package notes.v1;
+
+import "common/v1/common.proto";
+
+option go_package = "github.com/mrralexandrov/instructive-notes-bot/gen/go/notes/v1;notesv1";
+
+message Note {
+  string id = 1;
+  string author_id = 2;
+  string author_name = 3;
+  string participant_id = 4;
+  string participant_name = 5;
+  string text = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message CreateNoteRequest {
+  string author_id = 1;
+  string participant_id = 2;
+  string text = 3;
+}
+
+message GetNoteRequest {
+  string id = 1;
+}
+
+message ListNotesRequest {
+  common.v1.Pagination pagination = 1;
+  string author_id = 2;
+  string participant_id = 3;
+  bool unassigned_only = 4;
+  bool all_notes = 5;
+}
+
+message ListNotesResponse {
+  repeated Note notes = 1;
+  common.v1.PageInfo page_info = 2;
+}
+
+message UpdateNoteRequest {
+  string id = 1;
+  string text = 2;
+}
+
+message DeleteNoteRequest {
+  string id = 1;
+}
+
+message AssignNoteToParticipantRequest {
+  string note_id = 1;
+  string participant_id = 2;
+}
+
+service NotesService {
+  rpc CreateNote(CreateNoteRequest) returns (Note);
+  rpc GetNote(GetNoteRequest) returns (Note);
+  rpc ListNotes(ListNotesRequest) returns (ListNotesResponse);
+  rpc UpdateNote(UpdateNoteRequest) returns (Note);
+  rpc DeleteNote(DeleteNoteRequest) returns (common.v1.SuccessResponse);
+  rpc AssignNoteToParticipant(AssignNoteToParticipantRequest) returns (Note);
+}
