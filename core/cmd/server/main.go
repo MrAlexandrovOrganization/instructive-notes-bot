@@ -37,11 +37,14 @@ func main() {
 	}
 	slog.Info("migrations applied")
 
+	bunDB := db.NewBunDB(pool)
+	defer bunDB.Close()
+
 	// Repositories
-	usersRepo := repository.NewUsersRepo(pool)
-	groupsRepo := repository.NewGroupsRepo(pool)
-	participantsRepo := repository.NewParticipantsRepo(pool)
-	notesRepo := repository.NewNotesRepo(pool)
+	usersRepo := repository.NewUsersRepo(bunDB)
+	groupsRepo := repository.NewGroupsRepo(bunDB)
+	participantsRepo := repository.NewParticipantsRepo(bunDB)
+	notesRepo := repository.NewNotesRepo(bunDB)
 
 	// Services
 	usersSvc := service.NewUsersService(usersRepo)

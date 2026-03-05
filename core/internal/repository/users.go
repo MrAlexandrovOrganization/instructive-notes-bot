@@ -2,45 +2,43 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/uptrace/bun"
 )
 
 // User represents a bot user.
 type User struct {
-	ID         string
-	TelegramID int64
-	Name       string
-	Username   string
-	Role       string
-	GroupID    *string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	bun.BaseModel `bun:"table:users"`
+
+	ID         string    `bun:"id,pk"`
+	TelegramID int64     `bun:"telegram_id"`
+	Name       string    `bun:"name"`
+	Username   string    `bun:"username"`
+	Role       string    `bun:"role"`
+	GroupID    *string   `bun:"group_id"`
+	CreatedAt  time.Time `bun:"created_at"`
+	UpdatedAt  time.Time `bun:"updated_at"`
 }
 
 // UsersRepo handles user persistence.
 type UsersRepo struct {
-	pool *pgxpool.Pool
+	db *bun.DB
 }
 
 // NewUsersRepo creates a new UsersRepo.
-func NewUsersRepo(pool *pgxpool.Pool) *UsersRepo {
-	return &UsersRepo{pool: pool}
+func NewUsersRepo(db *bun.DB) *UsersRepo {
+	return &UsersRepo{db: db}
 }
 
 // GetByTelegramID finds a user by Telegram ID.
 func (r *UsersRepo) GetByTelegramID(ctx context.Context, telegramID int64) (*User, error) {
-	const q = `SELECT id, telegram_id, name, username, role, group_id, created_at, updated_at
-	           FROM users WHERE telegram_id = $1`
 	u := &User{}
-	err := r.pool.QueryRow(ctx, q, telegramID).Scan(
-		&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt,
-	)
+	err := r.db.NewSelect().Model(u).Where("telegram_id = ?", telegramID).Scan(ctx)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get user by telegram_id: %w", err)
@@ -50,14 +48,10 @@ func (r *UsersRepo) GetByTelegramID(ctx context.Context, telegramID int64) (*Use
 
 // GetByID finds a user by internal ID.
 func (r *UsersRepo) GetByID(ctx context.Context, id string) (*User, error) {
-	const q = `SELECT id, telegram_id, name, username, role, group_id, created_at, updated_at
-	           FROM users WHERE id = $1`
 	u := &User{}
-	err := r.pool.QueryRow(ctx, q, id).Scan(
-		&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt,
-	)
+	err := r.db.NewSelect().Model(u).Where("id = ?", id).Scan(ctx)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get user by id: %w", err)
@@ -67,13 +61,13 @@ func (r *UsersRepo) GetByID(ctx context.Context, id string) (*User, error) {
 
 // CreateUser inserts a new user.
 func (r *UsersRepo) CreateUser(ctx context.Context, telegramID int64, name, username, role string) (*User, error) {
-	const q = `INSERT INTO users (telegram_id, name, username, role)
-	           VALUES ($1, $2, $3, $4)
-	           RETURNING id, telegram_id, name, username, role, group_id, created_at, updated_at`
-	u := &User{}
-	err := r.pool.QueryRow(ctx, q, telegramID, name, username, role).Scan(
-		&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt,
-	)
+	u := &User{
+		TelegramID: telegramID,
+		Name:       name,
+		Username:   username,
+		Role:       role,
+	}
+	_, err := r.db.NewInsert().Model(u).Returning("*").Exec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
@@ -82,75 +76,71 @@ func (r *UsersRepo) CreateUser(ctx context.Context, telegramID int64, name, user
 
 // ListUsers returns paginated users with optional role filter.
 func (r *UsersRepo) ListUsers(ctx context.Context, roleFilter string, limit int, cursor string) ([]*User, error) {
-	q := `SELECT id, telegram_id, name, username, role, group_id, created_at, updated_at
-	      FROM users WHERE ($1 = '' OR role = $1)`
-	args := []any{roleFilter}
-	if cursor != "" {
-		q += ` AND id > $2`
-		args = append(args, cursor)
+	var users []*User
+	q := r.db.NewSelect().Model(&users)
+	if roleFilter != "" {
+		q = q.Where("role = ?", roleFilter)
 	}
-	q += fmt.Sprintf(` ORDER BY id LIMIT %d`, limit)
-
-	rows, err := r.pool.Query(ctx, q, args...)
-	if err != nil {
+	if cursor != "" {
+		q = q.Where("id > ?", cursor)
+	}
+	q = q.OrderExpr("id").Limit(limit)
+	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}
-	defer rows.Close()
-
-	var users []*User
-	for rows.Next() {
-		u := &User{}
-		if err := rows.Scan(&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		users = append(users, u)
-	}
-	return users, rows.Err()
+	return users, nil
 }
 
 // UpdateRole changes the role of a user.
 func (r *UsersRepo) UpdateRole(ctx context.Context, id, role string) (*User, error) {
-	const q = `UPDATE users SET role = $1, updated_at = now()
-	           WHERE id = $2
-	           RETURNING id, telegram_id, name, username, role, group_id, created_at, updated_at`
 	u := &User{}
-	err := r.pool.QueryRow(ctx, q, role, id).Scan(
-		&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt,
-	)
+	_, err := r.db.NewUpdate().Model(u).
+		Set("role = ?", role).
+		Set("updated_at = now()").
+		Where("id = ?", id).
+		Returning("*").
+		Exec(ctx)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("update role: %w", err)
+	}
+	if u.ID == "" {
+		return nil, ErrNotFound
 	}
 	return u, nil
 }
 
 // AssignGroup assigns a group to a user.
 func (r *UsersRepo) AssignGroup(ctx context.Context, userID, groupID string) (*User, error) {
-	const q = `UPDATE users SET group_id = $1, updated_at = now()
-	           WHERE id = $2
-	           RETURNING id, telegram_id, name, username, role, group_id, created_at, updated_at`
 	u := &User{}
-	err := r.pool.QueryRow(ctx, q, groupID, userID).Scan(
-		&u.ID, &u.TelegramID, &u.Name, &u.Username, &u.Role, &u.GroupID, &u.CreatedAt, &u.UpdatedAt,
-	)
+	_, err := r.db.NewUpdate().Model(u).
+		Set("group_id = ?", groupID).
+		Set("updated_at = now()").
+		Where("id = ?", userID).
+		Returning("*").
+		Exec(ctx)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("assign group: %w", err)
+	}
+	if u.ID == "" {
+		return nil, ErrNotFound
 	}
 	return u, nil
 }
 
 // DeleteUser removes a user.
 func (r *UsersRepo) DeleteUser(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+	res, err := r.db.NewDelete().Model((*User)(nil)).Where("id = ?", id).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	n, _ := res.RowsAffected()
+	if n == 0 {
 		return ErrNotFound
 	}
 	return nil

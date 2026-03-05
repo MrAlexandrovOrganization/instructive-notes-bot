@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
 )
 
 //go:embed migrations/*.sql
@@ -23,6 +25,12 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return pool, nil
+}
+
+// NewBunDB wraps a pgxpool.Pool into a bun.DB instance.
+func NewBunDB(pool *pgxpool.Pool) *bun.DB {
+	sqldb := stdlib.OpenDBFromPool(pool)
+	return bun.NewDB(sqldb, pgdialect.New())
 }
 
 // Migrate runs database migrations using goose.
