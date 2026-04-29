@@ -53,7 +53,7 @@ build-telegram:
 
 build: build-core build-telegram
 
-up:
+up: proto
 	$(DOCKER_COMPOSE) up -d --build
 
 down:
@@ -65,7 +65,7 @@ logs:
 migrate:
 	$(DOCKER_COMPOSE) exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
 
-deploy:
+deploy: proto
 	$(DOCKER_COMPOSE) up --build -d
 
 tidy:
