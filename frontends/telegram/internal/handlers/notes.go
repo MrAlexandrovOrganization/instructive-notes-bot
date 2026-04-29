@@ -391,6 +391,9 @@ func (h *NotesHandler) HandleNoteAssignStart(ctx context.Context, cb *tgbotapi.C
 func (h *NotesHandler) HandleGroupForNote(ctx context.Context, cb *tgbotapi.CallbackQuery, _ *usersv1.User, gID string) error {
 	h.AnswerCallback(cb.ID, "")
 	userCtx := h.States.Get(cb.From.ID)
+	if gID == "all" {
+		gID = ""
+	}
 	return h.showParticipantsForAssign(ctx, cb, groupID(gID), userCtx.PendingNoteID)
 }
 

@@ -75,6 +75,11 @@ func ParticipantPhotoView(participantID string) tgbotapi.InlineKeyboardMarkup {
 func GroupsListForAssign(groups []*groupsv1.Group, userGroupID, noteID string) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
+	// "All participants" option — no group filter.
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("👥 Все участники", "group:for_note:all"),
+	))
+
 	// Put user's own group first.
 	for _, g := range groups {
 		if g.Id == userGroupID {

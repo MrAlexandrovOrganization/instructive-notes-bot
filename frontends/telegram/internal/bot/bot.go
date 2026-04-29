@@ -183,9 +183,8 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, us
 	case "cancel":
 		b.states.Reset(cb.From.ID)
 		b.AnswerCallback(cb.ID, "Отменено")
-		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID,
-			tgbotapi.NewInlineKeyboardMarkup())
-		_, _ = b.api.Send(edit)
+		kb := keyboards.MainMenu(user.Role)
+		_ = b.startHandler.Base.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "📋 *Главное меню*", &kb)
 	case "menu":
 		b.handleMenuCallback(ctx, cb, user, parts)
 	case "back":
