@@ -59,18 +59,18 @@ jobs:
           version: latest
 
   deploy:
-    name: Deploy
+    name: Deploy to VM
+    needs: test
     runs-on: ubuntu-latest
-    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            cd ${{ secrets.DEPLOY_PATH }}
+            cd ${{ secrets.VM_PROJECT_PATH }}
             git pull
             make deploy
