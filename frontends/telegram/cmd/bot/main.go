@@ -42,7 +42,7 @@ func main() {
 		slog.Info("whisper not configured — voice notes will be saved as placeholder")
 	}
 
-	b, err := bot.New(cfg.BotToken, clients, cfg.RootTelegramID, wc)
+	b, err := bot.New(cfg.BotToken, clients, cfg.RootTelegramID, wc, cfg.CreateNoteOnVoiceMessage)
 	if err != nil {
 		slog.Error("create bot", "error", err)
 		os.Exit(1)

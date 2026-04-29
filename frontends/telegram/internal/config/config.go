@@ -12,14 +12,19 @@ type Config struct {
 	RootTelegramID int64
 	CoreGRPCAddr   string
 	WhisperAddr    string // optional; if empty, voice/video notes are not transcribed
+
+	// CreateNoteOnVoiceMessage controls whether voice/video notes automatically
+	// create a note. Set to false to ignore voice messages entirely.
+	CreateNoteOnVoiceMessage bool
 }
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	cfg := &Config{
-		BotToken:     getEnv("BOT_TOKEN", ""),
-		CoreGRPCAddr: getEnv("CORE_GRPC_ADDR", "localhost:50051"),
-		WhisperAddr:  getEnv("WHISPER_GRPC_ADDR", ""),
+		BotToken:                 getEnv("BOT_TOKEN", ""),
+		CoreGRPCAddr:             getEnv("CORE_GRPC_ADDR", "localhost:50051"),
+		WhisperAddr:              getEnv("WHISPER_GRPC_ADDR", ""),
+		CreateNoteOnVoiceMessage: false, // set to true to enable voice→note
 	}
 	if cfg.BotToken == "" {
 		return nil, fmt.Errorf("BOT_TOKEN is required")

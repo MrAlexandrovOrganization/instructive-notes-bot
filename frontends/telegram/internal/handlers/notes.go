@@ -40,8 +40,9 @@ func (h *NotesHandler) HandleQuickNote(ctx context.Context, msg *tgbotapi.Messag
 	return h.SendPlain(msg.Chat.ID, "✅ Заметка сохранена!", keyboards.MainMenu(user.Role))
 }
 
-// HandleVoiceNote transcribes a voice message or video note and saves it as an unassigned note.
-func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
+// HandleVoiceNote transcribes a voice message or video note.
+// If saveNote is true, the transcription is also saved as an unassigned note.
+func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, saveNote bool) error {
 	kind := "voice"
 	if msg.VideoNote != nil {
 		kind = "video_note"
@@ -49,6 +50,9 @@ func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Messag
 	slog.Info("voice note received", "kind", kind, "user_id", msg.From.ID, "whisper_configured", h.Whisper != nil)
 
 	if h.Whisper == nil {
+		if !saveNote {
+			return nil // no whisper, nothing to do
+		}
 		slog.Warn("whisper not configured, saving placeholder", "user_id", msg.From.ID)
 		_, err := h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
 			AuthorId: user.Id,
@@ -65,16 +69,19 @@ func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Messag
 		return err
 	}
 
-	go h.transcribeAndSave(context.Background(), msg, user, statusMsg.MessageID)
+	go h.transcribeAndSave(context.Background(), msg, user, statusMsg.MessageID, saveNote)
 
-	kb := keyboards.MainMenu(user.Role)
-	m := tgbotapi.NewMessage(msg.Chat.ID, "📋 Главное меню")
-	m.ReplyMarkup = kb
-	_, err = h.Bot.Send(m)
-	return err
+	if saveNote {
+		kb := keyboards.MainMenu(user.Role)
+		m := tgbotapi.NewMessage(msg.Chat.ID, "📋 Главное меню")
+		m.ReplyMarkup = kb
+		_, err = h.Bot.Send(m)
+		return err
+	}
+	return nil
 }
 
-func (h *NotesHandler) transcribeAndSave(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, statusMsgID int) {
+func (h *NotesHandler) transcribeAndSave(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, statusMsgID int, saveNote bool) {
 	editStatus := func(text string) {
 		edit := tgbotapi.NewEditMessageText(msg.Chat.ID, statusMsgID, text)
 		_, _ = h.Bot.Send(edit)
@@ -113,18 +120,24 @@ func (h *NotesHandler) transcribeAndSave(ctx context.Context, msg *tgbotapi.Mess
 		text = "(тишина)"
 	}
 
-	_, err = h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
-		AuthorId: user.Id,
-		Text:     text,
-	})
-	if err != nil {
-		slog.Error("save transcribed note", "error", err)
-		editStatus("❌ Не удалось сохранить заметку.")
-		return
+	if saveNote {
+		_, err = h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
+			AuthorId: user.Id,
+			Text:     text,
+		})
+		if err != nil {
+			slog.Error("save transcribed note", "error", err)
+			editStatus("❌ Не удалось сохранить заметку.")
+			return
+		}
 	}
 
+	prefix := "✅ "
+	if !saveNote {
+		prefix = "🎤 "
+	}
 	edit := tgbotapi.NewEditMessageText(msg.Chat.ID, statusMsgID,
-		fmt.Sprintf("✅ %s", EscapeMarkdown(text)))
+		fmt.Sprintf("%s%s", prefix, EscapeMarkdown(text)))
 	edit.ParseMode = "MarkdownV2"
 	_, _ = h.Bot.Send(edit)
 }
@@ -304,16 +317,25 @@ func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.Notes
 	req := &notesv1.ListNotesRequest{
 		Pagination: &commonv1.Pagination{Limit: notesPageSize, Cursor: cursor},
 	}
+	admin := user.Role == usersv1.Role_ROLE_ADMIN || user.Role == usersv1.Role_ROLE_ROOT
 	switch notesCtx {
 	case state.NotesCtxMy:
 		req.AuthorId = user.Id
 	case state.NotesCtxAll:
 		req.AllNotes = true
 	case state.NotesCtxUnassigned:
-		req.AuthorId = user.Id
+		if !admin {
+			req.AuthorId = user.Id
+		} else {
+			req.AllNotes = true
+		}
 		req.UnassignedOnly = true
 	case state.NotesCtxParticipant:
-		req.AuthorId = user.Id
+		if !admin {
+			req.AuthorId = user.Id
+		} else {
+			req.AllNotes = true
+		}
 		req.ParticipantId = participantID
 	}
 	return req

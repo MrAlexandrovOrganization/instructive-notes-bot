@@ -23,19 +23,20 @@ type msgHandler func(context.Context, *tgbotapi.Message, *usersv1.User) error
 
 // Bot is the main bot dispatcher.
 type Bot struct {
-	api           *tgbotapi.BotAPI
-	clients       *client.Clients
-	auth          *middleware.AuthMiddleware
-	states        *state.Manager
-	startHandler  *handlers.StartHandler
-	notesHandler  *handlers.NotesHandler
-	partHandler   *handlers.ParticipantsHandler
-	adminHandler  *handlers.AdminHandler
-	stateHandlers map[state.UserState]msgHandler
+	api                      *tgbotapi.BotAPI
+	clients                  *client.Clients
+	auth                     *middleware.AuthMiddleware
+	states                   *state.Manager
+	startHandler             *handlers.StartHandler
+	notesHandler             *handlers.NotesHandler
+	partHandler              *handlers.ParticipantsHandler
+	adminHandler             *handlers.AdminHandler
+	stateHandlers            map[state.UserState]msgHandler
+	createNoteOnVoiceMessage bool
 }
 
 // New creates a new Bot instance.
-func New(token string, clients *client.Clients, rootTelegramID int64, wc *whisper.Client) (*Bot, error) {
+func New(token string, clients *client.Clients, rootTelegramID int64, wc *whisper.Client, createNoteOnVoice bool) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -49,14 +50,15 @@ func New(token string, clients *client.Clients, rootTelegramID int64, wc *whispe
 	ah := handlers.NewAdminHandler(base)
 
 	b := &Bot{
-		api:          api,
-		clients:      clients,
-		auth:         middleware.NewAuthMiddleware(clients, rootTelegramID),
-		states:       states,
-		startHandler: handlers.NewStartHandler(base),
-		notesHandler: nh,
-		partHandler:  ph,
-		adminHandler: ah,
+		api:                      api,
+		clients:                  clients,
+		auth:                     middleware.NewAuthMiddleware(clients, rootTelegramID),
+		states:                   states,
+		startHandler:             handlers.NewStartHandler(base),
+		notesHandler:             nh,
+		partHandler:              ph,
+		adminHandler:             ah,
+		createNoteOnVoiceMessage: createNoteOnVoice,
 	}
 	b.stateHandlers = map[state.UserState]msgHandler{
 		state.StateWritingNoteText:       nh.HandleNoteText,
@@ -156,9 +158,9 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message, user *us
 		return
 	}
 
-	// Voice messages and video notes → transcribe and save as note.
+	// Voice messages and video notes → always transcribe, optionally save as note.
 	if msg.Voice != nil || msg.VideoNote != nil {
-		if err := b.notesHandler.HandleVoiceNote(ctx, msg, user); err != nil {
+		if err := b.notesHandler.HandleVoiceNote(ctx, msg, user, b.createNoteOnVoiceMessage); err != nil {
 			slog.Error("handle voice note", "error", err)
 		}
 		return
