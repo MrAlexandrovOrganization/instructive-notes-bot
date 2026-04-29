@@ -73,7 +73,7 @@ logs:
 migrate:
 	$(DOCKER_COMPOSE) exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
 
-deploy: proto
+deploy:
 	$(DOCKER_COMPOSE) up --build -d
 
 tidy:
