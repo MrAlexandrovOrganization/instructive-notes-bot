@@ -19,6 +19,14 @@ setup:
 	go install github.com/pressly/goose/v3/cmd/goose@latest
 	pre-commit install || true
 
+# Install all dev tools: buf + Go protoc plugins.
+# buf install: https://buf.build/docs/installation
+#   macOS: brew install bufbuild/buf/buf
+install:
+	go install github.com/bufbuild/buf/cmd/buf@v1.67.0
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+
 proto:
 	@echo "Generating proto..."
 	@if command -v $(BUF) >/dev/null 2>&1; then \
@@ -33,7 +41,7 @@ proto:
 	fi
 
 proto-lint:
-	$(BUF) lint
+	$(BUF) lint proto
 
 test:
 	go test ./... -race -coverprofile=coverage.out
