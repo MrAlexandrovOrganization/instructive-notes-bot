@@ -1,5 +1,7 @@
 .PHONY: setup proto test up down build lint migrate
 
+DOCKER_COMPOSE = docker compose
+
 # Tools
 BUF := buf
 GOLANGCI := golangci-lint
@@ -52,20 +54,20 @@ build-telegram:
 build: build-core build-telegram
 
 up:
-	docker-compose up -d --build
+	$(DOCKER_COMPOSE) up -d --build
 
 down:
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 logs:
-	docker-compose logs -f
+	$(DOCKER_COMPOSE) logs -f
 
 migrate:
-	docker-compose exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
+	$(DOCKER_COMPOSE) exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
 
 deploy:
-	git pull
-	docker-compose up -d --build
+	$(DOCKER_COMPOSE) build --no-cache
+	$(DOCKER_COMPOSE) up -d
 
 tidy:
 	go mod tidy
