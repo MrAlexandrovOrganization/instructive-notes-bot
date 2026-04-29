@@ -31,11 +31,11 @@ func (s *ParticipantsService) GetByID(ctx context.Context, id string) (*reposito
 }
 
 // List returns paginated participants.
-func (s *ParticipantsService) List(ctx context.Context, groupID, search string, limit int, cursor string) ([]*repository.Participant, error) {
+func (s *ParticipantsService) List(ctx context.Context, groupID, search string, limit, offset int) ([]*repository.Participant, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	return s.repo.List(ctx, groupID, search, limit, cursor)
+	return s.repo.List(ctx, groupID, search, limit, offset)
 }
 
 // Update modifies an existing participant.

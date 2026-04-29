@@ -112,7 +112,7 @@ func (x *SuccessResponse) GetMessage() string {
 type Pagination struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
-	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+	Offset        int32                  `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -154,16 +154,15 @@ func (x *Pagination) GetLimit() int32 {
 	return 0
 }
 
-func (x *Pagination) GetCursor() string {
+func (x *Pagination) GetOffset() int32 {
 	if x != nil {
-		return x.Cursor
+		return x.Offset
 	}
-	return ""
+	return 0
 }
 
 type PageInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	NextCursor    string                 `protobuf:"bytes,1,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	HasNext       bool                   `protobuf:"varint,2,opt,name=has_next,json=hasNext,proto3" json:"has_next,omitempty"`
 	Total         int32                  `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -200,13 +199,6 @@ func (*PageInfo) Descriptor() ([]byte, []int) {
 	return file_common_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *PageInfo) GetNextCursor() string {
-	if x != nil {
-		return x.NextCursor
-	}
-	return ""
-}
-
 func (x *PageInfo) GetHasNext() bool {
 	if x != nil {
 		return x.HasNext
@@ -233,12 +225,10 @@ const file_common_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"Pagination\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor\"\\\n" +
-	"\bPageInfo\x12\x1f\n" +
-	"\vnext_cursor\x18\x01 \x01(\tR\n" +
-	"nextCursor\x12\x19\n" +
+	"\x06offset\x18\x02 \x01(\x05R\x06offset\"A\n" +
+	"\bPageInfo\x12\x19\n" +
 	"\bhas_next\x18\x02 \x01(\bR\ahasNext\x12\x14\n" +
-	"\x05total\x18\x03 \x01(\x05R\x05totalBJZHgithub.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1;commonv1b\x06proto3"
+	"\x05total\x18\x03 \x01(\x05R\x05totalJ\x04\b\x01\x10\x02BJZHgithub.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1;commonv1b\x06proto3"
 
 var (
 	file_common_v1_common_proto_rawDescOnce sync.Once

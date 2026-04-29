@@ -57,19 +57,19 @@ func (s *usersServer) GetUserByTelegramID(ctx context.Context, req *usersv1.GetU
 
 func (s *usersServer) ListUsers(ctx context.Context, req *usersv1.ListUsersRequest) (*usersv1.ListUsersResponse, error) {
 	limit := 20
-	cursor := ""
+	offset := 0
 	roleFilter := ""
 	if req.Pagination != nil {
 		if req.Pagination.Limit > 0 {
 			limit = int(req.Pagination.Limit)
 		}
-		cursor = req.Pagination.Cursor
+		offset = int(req.Pagination.Offset)
 	}
 	if req.RoleFilter != usersv1.Role_ROLE_UNSPECIFIED {
 		roleFilter = protoRoleToString(req.RoleFilter)
 	}
 
-	users, err := s.svc.List(ctx, roleFilter, limit, cursor)
+	users, err := s.svc.List(ctx, roleFilter, limit, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list users: %v", err)
 	}
@@ -84,9 +84,6 @@ func (s *usersServer) ListUsers(ctx context.Context, req *usersv1.ListUsersReque
 		PageInfo: &commonv1.PageInfo{
 			HasNext: len(users) == limit,
 		},
-	}
-	if len(users) > 0 && resp.PageInfo.HasNext {
-		resp.PageInfo.NextCursor = users[len(users)-1].ID
 	}
 	return resp, nil
 }

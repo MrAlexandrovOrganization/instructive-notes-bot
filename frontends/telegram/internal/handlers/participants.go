@@ -48,12 +48,7 @@ func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, cb *tg
 		}
 	}
 
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
-	}
-
-	kb := keyboards.ParticipantsList(resp.Participants, nextCursor, user.Role, backTo)
+	kb := keyboards.ParticipantsList(resp.Participants, "", user.Role, backTo)
 	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, title, &kb)
 }
 

@@ -47,11 +47,11 @@ func (s *UsersService) GetByTelegramID(ctx context.Context, telegramID int64) (*
 }
 
 // List returns paginated users.
-func (s *UsersService) List(ctx context.Context, roleFilter string, limit int, cursor string) ([]*repository.User, error) {
+func (s *UsersService) List(ctx context.Context, roleFilter string, limit, offset int) ([]*repository.User, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	return s.repo.ListUsers(ctx, roleFilter, limit, cursor)
+	return s.repo.ListUsers(ctx, roleFilter, limit, offset)
 }
 
 // UpdateRole changes the role of a user.

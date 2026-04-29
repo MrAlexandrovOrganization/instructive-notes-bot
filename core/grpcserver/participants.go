@@ -56,15 +56,15 @@ func (s *participantsServer) GetParticipant(ctx context.Context, req *participan
 
 func (s *participantsServer) ListParticipants(ctx context.Context, req *participantsv1.ListParticipantsRequest) (*participantsv1.ListParticipantsResponse, error) {
 	limit := 20
-	cursor := ""
+	offset := 0
 	if req.Pagination != nil {
 		if req.Pagination.Limit > 0 {
 			limit = int(req.Pagination.Limit)
 		}
-		cursor = req.Pagination.Cursor
+		offset = int(req.Pagination.Offset)
 	}
 
-	participants, err := s.svc.List(ctx, req.GroupId, req.Search, limit, cursor)
+	participants, err := s.svc.List(ctx, req.GroupId, req.Search, limit, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list participants: %v", err)
 	}
@@ -79,9 +79,6 @@ func (s *participantsServer) ListParticipants(ctx context.Context, req *particip
 		PageInfo: &commonv1.PageInfo{
 			HasNext: len(participants) == limit,
 		},
-	}
-	if len(participants) > 0 && resp.PageInfo.HasNext {
-		resp.PageInfo.NextCursor = participants[len(participants)-1].ID
 	}
 	return resp, nil
 }

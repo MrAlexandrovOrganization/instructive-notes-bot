@@ -43,15 +43,15 @@ func (s *groupsServer) GetGroup(ctx context.Context, req *groupsv1.GetGroupReque
 
 func (s *groupsServer) ListGroups(ctx context.Context, req *groupsv1.ListGroupsRequest) (*groupsv1.ListGroupsResponse, error) {
 	limit := 20
-	cursor := ""
+	offset := 0
 	if req.Pagination != nil {
 		if req.Pagination.Limit > 0 {
 			limit = int(req.Pagination.Limit)
 		}
-		cursor = req.Pagination.Cursor
+		offset = int(req.Pagination.Offset)
 	}
 
-	groups, err := s.svc.List(ctx, limit, cursor)
+	groups, err := s.svc.List(ctx, limit, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list groups: %v", err)
 	}
@@ -66,9 +66,6 @@ func (s *groupsServer) ListGroups(ctx context.Context, req *groupsv1.ListGroupsR
 		PageInfo: &commonv1.PageInfo{
 			HasNext: len(groups) == limit,
 		},
-	}
-	if len(groups) > 0 && resp.PageInfo.HasNext {
-		resp.PageInfo.NextCursor = groups[len(groups)-1].ID
 	}
 	return resp, nil
 }

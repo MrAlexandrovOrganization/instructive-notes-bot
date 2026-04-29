@@ -11,12 +11,12 @@ import (
 // NotesListOpts configures the notes list keyboard.
 type NotesListOpts struct {
 	Notes         []*notesv1.Note
-	NextCursor    string
 	Total         int32
 	Offset        int32
-	BackTo        string // callback for "Вернуться", e.g. "back:menu"
-	HasPrevPage   bool   // show "⬅️ Назад" pagination button
+	HasNext       bool
+	BackTo        string // callback for "Вернуться"
 	ParticipantID string // if set, show "Написать заметку" button
+	PageSize      int32
 }
 
 // NotesList returns an inline keyboard for a list of notes with stable numbering.
@@ -32,17 +32,21 @@ func NotesList(opts NotesListOpts) tgbotapi.InlineKeyboardMarkup {
 
 	// Pagination row: [⬅️ Назад] [➡️ Далее]
 	var navRow []tgbotapi.InlineKeyboardButton
-	if opts.HasPrevPage {
-		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "page:notes:b"))
+	if opts.Offset > 0 {
+		prevOffset := opts.Offset - opts.PageSize
+		if prevOffset < 0 {
+			prevOffset = 0
+		}
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("page:notes:%d", prevOffset)))
 	}
-	if opts.NextCursor != "" {
-		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", "page:notes:f:"+opts.NextCursor))
+	if opts.HasNext {
+		nextOffset := opts.Offset + int32(len(opts.Notes))
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", fmt.Sprintf("page:notes:%d", nextOffset)))
 	}
 	if len(navRow) > 0 {
 		rows = append(rows, navRow)
 	}
 
-	// "Написать заметку" for participant notes view.
 	if opts.ParticipantID != "" {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("✍️ Написать заметку", "participant:note:"+opts.ParticipantID),

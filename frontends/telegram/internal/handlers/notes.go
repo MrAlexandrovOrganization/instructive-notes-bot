@@ -71,13 +71,12 @@ func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Messag
 
 	go h.transcribeAndSave(context.Background(), msg, user, statusMsg.MessageID, saveNote)
 
-	if saveNote {
-		kb := keyboards.MainMenu(user.Role)
-		m := tgbotapi.NewMessage(msg.Chat.ID, "📋 Главное меню")
-		m.ReplyMarkup = kb
-		_, err = h.Bot.Send(m)
-		return err
-	}
+	kb := keyboards.MainMenu(user.Role)
+	m := tgbotapi.NewMessage(msg.Chat.ID, "📋 Главное меню")
+	m.ReplyMarkup = kb
+	_, err = h.Bot.Send(m)
+	return err
+
 	return nil
 }
 
@@ -172,7 +171,7 @@ func (h *NotesHandler) HandleNoteText(ctx context.Context, msg *tgbotapi.Message
 	return h.SendPlain(msg.Chat.ID, "✅ Заметка сохранена!", keyboards.MainMenu(user.Role))
 }
 
-const notesPageSize = 10
+const notesPageSize = 8
 
 // handleNotesList is a shared helper for all notes list views.
 func (h *NotesHandler) handleNotesList(
@@ -184,7 +183,7 @@ func (h *NotesHandler) handleNotesList(
 	title string,
 	backTo string,
 ) error {
-	req := h.buildListRequest(user, notesCtx, participantID, "")
+	req := h.buildListRequest(user, notesCtx, participantID, 0)
 
 	resp, err := h.Clients.Notes.ListNotes(ctx, req)
 	if err != nil {
@@ -206,23 +205,22 @@ func (h *NotesHandler) handleNotesList(
 		return h.EditMD(chatID, msgID, emptyText, &kb)
 	}
 
-	total, nextCursor := pageInfoFields(resp.PageInfo)
+	total, hasNext := pageInfoFields(resp.PageInfo)
 
-	// Initialize pagination state.
+	// Save pagination context for subsequent page requests.
 	h.States.Set(userID, &state.UserContext{
 		NotesCtx:    notesCtx,
 		PendingData: participantID,
-		PageCursors: []string{""},
 	})
 
 	kb := keyboards.NotesList(keyboards.NotesListOpts{
 		Notes:         resp.Notes,
-		NextCursor:    nextCursor,
 		Total:         total,
 		Offset:        0,
+		HasNext:       hasNext,
 		BackTo:        backTo,
-		HasPrevPage:   false,
 		ParticipantID: participantID,
+		PageSize:      notesPageSize,
 	})
 	return h.EditMD(chatID, msgID,
 		fmt.Sprintf("%s \\(%d\\)", title, total), &kb)
@@ -256,42 +254,19 @@ func (h *NotesHandler) HandleNotesByParticipant(ctx context.Context, cb *tgbotap
 		"📋 *Заметки по участнику*", backTo)
 }
 
-// HandleNotesPageForward handles forward pagination.
-func (h *NotesHandler) HandleNotesPageForward(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, cursor string) error {
+// HandleNotesPage handles pagination by offset.
+func (h *NotesHandler) HandleNotesPage(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, offset int32) error {
 	h.AnswerCallback(cb.ID, "")
 
 	userCtx := h.States.Get(cb.From.ID)
-	userCtx.PageCursors = append(userCtx.PageCursors, cursor)
-	h.States.Set(cb.From.ID, userCtx)
-
-	return h.renderNotesPage(ctx, cb, user, userCtx, cursor)
-}
-
-// HandleNotesPageBack handles backward pagination.
-func (h *NotesHandler) HandleNotesPageBack(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
-	h.AnswerCallback(cb.ID, "")
-
-	userCtx := h.States.Get(cb.From.ID)
-	if len(userCtx.PageCursors) > 1 {
-		userCtx.PageCursors = userCtx.PageCursors[:len(userCtx.PageCursors)-1]
-	}
-	h.States.Set(cb.From.ID, userCtx)
-
-	cursor := userCtx.PageCursors[len(userCtx.PageCursors)-1]
-	return h.renderNotesPage(ctx, cb, user, userCtx, cursor)
-}
-
-func (h *NotesHandler) renderNotesPage(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, userCtx *state.UserContext, cursor string) error {
-	req := h.buildListRequest(user, userCtx.NotesCtx, userCtx.PendingData, cursor)
+	req := h.buildListRequest(user, userCtx.NotesCtx, userCtx.PendingData, offset)
 
 	resp, err := h.Clients.Notes.ListNotes(ctx, req)
 	if err != nil {
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить заметки.")
 	}
 
-	total, nextCursor := pageInfoFields(resp.PageInfo)
-	pageIndex := len(userCtx.PageCursors) - 1
-	offset := int32(pageIndex) * notesPageSize
+	total, hasNext := pageInfoFields(resp.PageInfo)
 
 	backTo := h.notesBackTo(userCtx)
 	participantID := ""
@@ -301,21 +276,21 @@ func (h *NotesHandler) renderNotesPage(ctx context.Context, cb *tgbotapi.Callbac
 
 	kb := keyboards.NotesList(keyboards.NotesListOpts{
 		Notes:         resp.Notes,
-		NextCursor:    nextCursor,
 		Total:         total,
 		Offset:        offset,
+		HasNext:       hasNext,
 		BackTo:        backTo,
-		HasPrevPage:   pageIndex > 0,
 		ParticipantID: participantID,
+		PageSize:      notesPageSize,
 	})
 	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, kb)
 	_, err = h.Bot.Send(edit)
 	return err
 }
 
-func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.NotesContext, participantID, cursor string) *notesv1.ListNotesRequest {
+func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.NotesContext, participantID string, offset int32) *notesv1.ListNotesRequest {
 	req := &notesv1.ListNotesRequest{
-		Pagination: &commonv1.Pagination{Limit: notesPageSize, Cursor: cursor},
+		Pagination: &commonv1.Pagination{Limit: notesPageSize, Offset: offset},
 	}
 	admin := user.Role == usersv1.Role_ROLE_ADMIN || user.Role == usersv1.Role_ROLE_ROOT
 	switch notesCtx {
@@ -428,12 +403,7 @@ func (h *NotesHandler) showParticipantsForAssign(ctx context.Context, cb *tgbota
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
 	}
 
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
-	}
-
-	kb := keyboards.SelectParticipantForNote(resp.Participants, nextCursor, noteID)
+	kb := keyboards.SelectParticipantForNote(resp.Participants, "", noteID)
 	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Выберите участника:")
 	edit.ReplyMarkup = &kb
 	_, err = h.Bot.Send(edit)
@@ -474,12 +444,10 @@ func menuKeyboard(user *usersv1.User) *tgbotapi.InlineKeyboardMarkup {
 	return &kb
 }
 
-func pageInfoFields(pi *commonv1.PageInfo) (total int32, nextCursor string) {
+func pageInfoFields(pi *commonv1.PageInfo) (total int32, hasNext bool) {
 	if pi != nil {
 		total = pi.Total
-		if pi.HasNext {
-			nextCursor = pi.NextCursor
-		}
+		hasNext = pi.HasNext
 	}
 	return
 }

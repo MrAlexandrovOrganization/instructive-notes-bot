@@ -53,13 +53,10 @@ func (r *GroupsRepo) GetByID(ctx context.Context, id string) (*Group, error) {
 }
 
 // List returns paginated groups.
-func (r *GroupsRepo) List(ctx context.Context, limit int, cursor string) ([]*Group, error) {
+func (r *GroupsRepo) List(ctx context.Context, limit, offset int) ([]*Group, error) {
 	var groups []*Group
-	q := r.db.NewSelect().Model(&groups)
-	if cursor != "" {
-		q = q.Where("id > ?", cursor)
-	}
-	q = q.OrderExpr("name").Limit(limit)
+	q := r.db.NewSelect().Model(&groups).
+		OrderExpr("name").Limit(limit).Offset(offset)
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list groups: %w", err)
 	}

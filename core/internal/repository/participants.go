@@ -73,7 +73,7 @@ func (r *ParticipantsRepo) GetByID(ctx context.Context, id string) (*Participant
 }
 
 // List returns paginated participants with optional group filter and search.
-func (r *ParticipantsRepo) List(ctx context.Context, groupID, search string, limit int, cursor string) ([]*Participant, error) {
+func (r *ParticipantsRepo) List(ctx context.Context, groupID, search string, limit, offset int) ([]*Participant, error) {
 	var participants []*Participant
 	q := r.selectWithJoins()
 	if groupID != "" {
@@ -82,10 +82,7 @@ func (r *ParticipantsRepo) List(ctx context.Context, groupID, search string, lim
 	if search != "" {
 		q = q.Where("p.name ILIKE ?", "%"+search+"%")
 	}
-	if cursor != "" {
-		q = q.Where("p.id > ?", cursor)
-	}
-	q = q.OrderExpr("p.name").Limit(limit)
+	q = q.OrderExpr("p.name").Limit(limit).Offset(offset)
 	if err := q.Scan(ctx, &participants); err != nil {
 		return nil, fmt.Errorf("list participants: %w", err)
 	}

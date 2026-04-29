@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -450,38 +451,22 @@ func (b *Bot) handleUserCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 }
 
 // handlePageCallback handles pagination callbacks.
-// Formats:
-//   - page:notes:f:{cursor}  — forward pagination
-//   - page:notes:b            — backward pagination
-//   - page:participants:{cursor}
-//   - page:select_participant:{cursor}
+// Format: page:notes:{offset}
 func (b *Bot) handlePageCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
 	if len(parts) < 3 {
 		b.AnswerCallback(cb.ID, "")
 		return
 	}
 
-	section := parts[1]
-	switch section {
+	switch parts[1] {
 	case "notes":
-		direction := parts[2]
-		switch direction {
-		case "f":
-			// Forward: page:notes:f:{cursor}
-			cursor := ""
-			if len(parts) >= 4 {
-				cursor = parts[3]
-			}
-			if err := b.notesHandler.HandleNotesPageForward(ctx, cb, user, cursor); err != nil {
-				slog.Error("notes page forward", "error", err)
-			}
-		case "b":
-			// Backward: page:notes:b
-			if err := b.notesHandler.HandleNotesPageBack(ctx, cb, user); err != nil {
-				slog.Error("notes page back", "error", err)
-			}
-		default:
+		offset, err := strconv.Atoi(parts[2])
+		if err != nil {
 			b.AnswerCallback(cb.ID, "")
+			return
+		}
+		if err := b.notesHandler.HandleNotesPage(ctx, cb, user, int32(offset)); err != nil {
+			slog.Error("notes page", "error", err)
 		}
 	default:
 		b.AnswerCallback(cb.ID, "")

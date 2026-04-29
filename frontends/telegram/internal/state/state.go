@@ -34,6 +34,5 @@ type UserContext struct {
 	PendingData2  string // secondary pending field (e.g., telegramID during user creation)
 
 	// Pagination state for notes lists.
-	NotesCtx    NotesContext // which notes list is active
-	PageCursors []string     // stack of cursors for each visited page (index 0 = page 0 cursor "")
+	NotesCtx NotesContext // which notes list is active
 }

@@ -13,11 +13,11 @@ message SuccessResponse {
 
 message Pagination {
   int32 limit = 1;
-  string cursor = 2;
+  int32 offset = 2;
 }
 
 message PageInfo {
-  string next_cursor = 1;
+  reserved 1;
   bool has_next = 2;
   int32 total = 3;
 }

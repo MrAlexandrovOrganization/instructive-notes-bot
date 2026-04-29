@@ -73,7 +73,7 @@ type ListFilter struct {
 	UnassignedOnly bool
 	AllNotes       bool
 	Limit          int
-	Cursor         string
+	Offset         int
 }
 
 // List returns paginated notes based on filter.
@@ -89,10 +89,7 @@ func (r *NotesRepo) List(ctx context.Context, f ListFilter) ([]*Note, error) {
 	if f.UnassignedOnly {
 		q = q.Where("n.participant_id IS NULL")
 	}
-	if f.Cursor != "" {
-		q = q.Where("n.id > ?", f.Cursor)
-	}
-	q = q.OrderExpr("n.created_at DESC").Limit(f.Limit)
+	q = q.OrderExpr("n.created_at DESC").Limit(f.Limit).Offset(f.Offset)
 	if err := q.Scan(ctx, &notes); err != nil {
 		return nil, fmt.Errorf("list notes: %w", err)
 	}

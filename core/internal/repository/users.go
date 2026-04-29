@@ -75,16 +75,13 @@ func (r *UsersRepo) CreateUser(ctx context.Context, telegramID int64, name, user
 }
 
 // ListUsers returns paginated users with optional role filter.
-func (r *UsersRepo) ListUsers(ctx context.Context, roleFilter string, limit int, cursor string) ([]*User, error) {
+func (r *UsersRepo) ListUsers(ctx context.Context, roleFilter string, limit, offset int) ([]*User, error) {
 	var users []*User
 	q := r.db.NewSelect().Model(&users)
 	if roleFilter != "" {
 		q = q.Where("role = ?", roleFilter)
 	}
-	if cursor != "" {
-		q = q.Where("id > ?", cursor)
-	}
-	q = q.OrderExpr("id").Limit(limit)
+	q = q.OrderExpr("name").Limit(limit).Offset(offset)
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}

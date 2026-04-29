@@ -31,11 +31,11 @@ func (s *GroupsService) GetByID(ctx context.Context, id string) (*repository.Gro
 }
 
 // List returns paginated groups.
-func (s *GroupsService) List(ctx context.Context, limit int, cursor string) ([]*repository.Group, error) {
+func (s *GroupsService) List(ctx context.Context, limit, offset int) ([]*repository.Group, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	return s.repo.List(ctx, limit, cursor)
+	return s.repo.List(ctx, limit, offset)
 }
 
 // Update modifies an existing group.

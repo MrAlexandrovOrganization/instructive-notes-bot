@@ -57,7 +57,7 @@ func (s *notesServer) ListNotes(ctx context.Context, req *notesv1.ListNotesReque
 		if req.Pagination.Limit > 0 {
 			f.Limit = int(req.Pagination.Limit)
 		}
-		f.Cursor = req.Pagination.Cursor
+		f.Offset = int(req.Pagination.Offset)
 	}
 
 	notes, err := s.svc.List(ctx, f)
@@ -78,12 +78,9 @@ func (s *notesServer) ListNotes(ctx context.Context, req *notesv1.ListNotesReque
 	resp := &notesv1.ListNotesResponse{
 		Notes: protoNotes,
 		PageInfo: &commonv1.PageInfo{
-			HasNext: len(notes) == f.Limit,
+			HasNext: int32(f.Offset+len(notes)) < total,
 			Total:   total,
 		},
-	}
-	if len(notes) > 0 && resp.PageInfo.HasNext {
-		resp.PageInfo.NextCursor = notes[len(notes)-1].ID
 	}
 	return resp, nil
 }
