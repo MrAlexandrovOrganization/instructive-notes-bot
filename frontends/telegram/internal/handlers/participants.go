@@ -100,12 +100,16 @@ func (h *ParticipantsHandler) HandleParticipantPhoto(ctx context.Context, cb *tg
 		return h.SendPlain(cb.Message.Chat.ID, "Выберите действие:", kb)
 	}
 
-	// No photo — ask to upload.
+	// No photo — ask to upload (edit the existing message).
 	h.States.Set(cb.From.ID, &state.UserContext{
 		State:       state.StateUploadingPhoto,
 		PendingData: participantID,
 	})
-	return h.SendPlain(cb.Message.Chat.ID, "Отправьте фото для участника:", keyboards.CancelInline())
+	kb := keyboards.CancelInline()
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Отправьте фото для участника:")
+	edit.ReplyMarkup = &kb
+	_, err = h.Bot.Send(edit)
+	return err
 }
 
 // HandleParticipantUpdatePhoto starts the photo upload flow (from the "Обновить фото" button).
@@ -115,7 +119,11 @@ func (h *ParticipantsHandler) HandleParticipantUpdatePhoto(ctx context.Context, 
 		State:       state.StateUploadingPhoto,
 		PendingData: participantID,
 	})
-	return h.SendPlain(cb.Message.Chat.ID, "Отправьте фото для участника:", keyboards.CancelInline())
+	kb := keyboards.CancelInline()
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Отправьте фото для участника:")
+	edit.ReplyMarkup = &kb
+	_, err := h.Bot.Send(edit)
+	return err
 }
 
 // HandlePhotoUpload processes an uploaded photo.
@@ -211,14 +219,26 @@ func (h *ParticipantsHandler) HandleParticipantGroupSelect(ctx context.Context, 
 	}
 
 	text := fmt.Sprintf("✅ Участник *%s* создан\\!", EscapeMarkdown(p.Name))
-	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, nil)
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👤 Профиль участника", "participant:view:"+p.Id),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👥 Участники", "menu:participants"),
+		),
+	)
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, &kb)
 }
 
 // HandleAddParticipantStart initiates participant creation from a callback.
 func (h *ParticipantsHandler) HandleAddParticipantStart(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
 	h.AnswerCallback(cb.ID, "")
 	h.States.SetState(cb.From.ID, state.StateAddingParticipantName)
-	return h.SendPlain(cb.Message.Chat.ID, "Введите имя участника:", keyboards.CancelInline())
+	kb := keyboards.CancelInline()
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Введите имя участника:")
+	edit.ReplyMarkup = &kb
+	_, err := h.Bot.Send(edit)
+	return err
 }
 
 func (h *ParticipantsHandler) createParticipant(ctx context.Context, msg *tgbotapi.Message, _ *usersv1.User, name, groupID string) error {

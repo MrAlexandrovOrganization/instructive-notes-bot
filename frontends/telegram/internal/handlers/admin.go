@@ -90,12 +90,20 @@ func (h *AdminHandler) showGroups(ctx context.Context, cb *tgbotapi.CallbackQuer
 
 func (h *AdminHandler) startAddUser(_ context.Context, cb *tgbotapi.CallbackQuery) error {
 	h.States.SetState(cb.From.ID, state.StateAddingUserName)
-	return h.SendPlain(cb.Message.Chat.ID, "Введите имя нового пользователя:", keyboards.CancelInline())
+	kb := keyboards.CancelInline()
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Введите имя нового пользователя:")
+	edit.ReplyMarkup = &kb
+	_, err := h.Bot.Send(edit)
+	return err
 }
 
 func (h *AdminHandler) startAddGroup(_ context.Context, cb *tgbotapi.CallbackQuery) error {
 	h.States.SetState(cb.From.ID, state.StateAddingGroupName)
-	return h.SendPlain(cb.Message.Chat.ID, "Введите название новой отряды:", keyboards.CancelInline())
+	kb := keyboards.CancelInline()
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Введите название нового отряда:")
+	edit.ReplyMarkup = &kb
+	_, err := h.Bot.Send(edit)
+	return err
 }
 
 // HandleUserNameInput handles the user name input during user creation.
@@ -155,14 +163,24 @@ func (h *AdminHandler) HandleUserCreateRole(ctx context.Context, cb *tgbotapi.Ca
 	if err != nil {
 		h.States.Reset(cb.From.ID)
 		h.AnswerCallback(cb.ID, "Ошибка")
-		return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Ошибка: неверный Telegram ID\\.", nil)
+		kb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Управление", "back:admin"),
+			),
+		)
+		return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Ошибка: неверный Telegram ID\\.", &kb)
 	}
 	h.States.Reset(cb.From.ID)
 
 	newUser, _, err := h.createUserDirectly(ctx, telegramID, name)
 	if err != nil {
 		h.AnswerCallback(cb.ID, "Ошибка")
-		return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Не удалось создать пользователя\\.", nil)
+		kb := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Управление", "back:admin"),
+			),
+		)
+		return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "❌ Не удалось создать пользователя\\.", &kb)
 	}
 
 	if role != usersv1.Role_ROLE_ORGANIZER {
@@ -172,8 +190,16 @@ func (h *AdminHandler) HandleUserCreateRole(ctx context.Context, cb *tgbotapi.Ca
 		})
 		if err != nil {
 			h.AnswerCallback(cb.ID, "Ошибка роли")
+			kb := tgbotapi.NewInlineKeyboardMarkup(
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("👥 Пользователи", "admin:users"),
+				),
+				tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("⚙️ Управление", "back:admin"),
+				),
+			)
 			return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID,
-				fmt.Sprintf("⚠️ Пользователь *%s* создан, но не удалось установить роль\\.", EscapeMarkdown(newUser.Name)), nil)
+				fmt.Sprintf("⚠️ Пользователь *%s* создан, но не удалось установить роль\\.", EscapeMarkdown(newUser.Name)), &kb)
 		}
 	}
 

@@ -318,14 +318,15 @@ func (b *Bot) handleParticipantCallback(ctx context.Context, cb *tgbotapi.Callba
 		}
 	case "note":
 		// Start note creation pre-selected for this participant.
-		userCtx := b.states.Get(cb.From.ID)
-		userCtx.State = state.StateWritingNoteText
-		userCtx.PendingData = id
-		b.states.Set(cb.From.ID, userCtx)
-		if _, err := b.api.Request(tgbotapi.NewCallback(cb.ID, "")); err != nil {
-			slog.Error("answer callback", "error", err)
-		}
-		_, _ = b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "✍️ Напишите текст заметки:"))
+		b.states.Set(cb.From.ID, &state.UserContext{
+			State:       state.StateWritingNoteText,
+			PendingData: id,
+		})
+		b.AnswerCallback(cb.ID, "")
+		kb := keyboards.CancelInline()
+		edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "✍️ Напишите текст заметки:")
+		edit.ReplyMarkup = &kb
+		_, _ = b.api.Send(edit)
 	case "photo":
 		if err := b.partHandler.HandleParticipantPhoto(ctx, cb, user, id); err != nil {
 			slog.Error("participant photo", "error", err)
