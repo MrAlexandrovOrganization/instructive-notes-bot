@@ -22,9 +22,10 @@ type NotesListOpts struct {
 // NotesList returns an inline keyboard for a list of notes with stable numbering.
 func NotesList(opts NotesListOpts) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for i, n := range opts.Notes {
-		num := opts.Total - opts.Offset - int32(i)
-		label := fmt.Sprintf("#%d %s", num, truncate(n.Text, 35))
+	for _, n := range opts.Notes {
+		// num := opts.Total - opts.Offset - int32(i)
+		// label := fmt.Sprintf("#%d %s", num, truncate(n.Text, 35))
+		label := fmt.Sprintf("%s", truncate(n.Text, 35))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, "note:view:"+n.Id),
 		))
