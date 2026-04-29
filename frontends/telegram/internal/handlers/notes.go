@@ -1,18 +1,21 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strings"
+	"log/slog"
+	"net/http"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
 	commonv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1"
+	groupsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/groups/v1"
 	notesv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/notes/v1"
 	participantsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/participants/v1"
 	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
-	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
-	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
 )
 
 // NotesHandler handles note-related interactions.
@@ -25,49 +28,115 @@ func NewNotesHandler(base *Base) *NotesHandler {
 	return &NotesHandler{Base: base}
 }
 
-// HandleNewNote starts the note creation flow.
-func (h *NotesHandler) HandleNewNote(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
-	// Show participant selection.
-	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
-		Pagination: &commonv1.Pagination{Limit: 10},
+// HandleQuickNote saves any incoming text as a note immediately (no participant).
+func (h *NotesHandler) HandleQuickNote(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
+	_, err := h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
+		AuthorId: user.Id,
+		Text:     msg.Text,
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось загрузить участников.")
+		return h.SendError(msg.Chat.ID, "Не удалось сохранить заметку.")
+	}
+	return h.SendPlain(msg.Chat.ID, "✅ Заметка сохранена!", keyboards.MainMenu(user.Role))
+}
+
+// HandleVoiceNote transcribes a voice message or video note and saves it as an unassigned note.
+func (h *NotesHandler) HandleVoiceNote(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
+	kind := "voice"
+	if msg.VideoNote != nil {
+		kind = "video_note"
+	}
+	slog.Info("voice note received", "kind", kind, "user_id", msg.From.ID, "whisper_configured", h.Whisper != nil)
+
+	if h.Whisper == nil {
+		slog.Warn("whisper not configured, saving placeholder", "user_id", msg.From.ID)
+		_, err := h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
+			AuthorId: user.Id,
+			Text:     "[голосовое сообщение]",
+		})
+		if err != nil {
+			return h.SendError(msg.Chat.ID, "Не удалось сохранить заметку.")
+		}
+		return h.SendPlain(msg.Chat.ID, "✅ Заметка сохранена!", keyboards.MainMenu(user.Role))
 	}
 
-	h.States.Set(msg.From.ID, &state.UserContext{State: state.StateSelectingParticipantForNote})
-
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
+	statusMsg, err := h.Bot.Send(tgbotapi.NewMessage(msg.Chat.ID, "⏳ Расшифровываю..."))
+	if err != nil {
+		return err
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "Выберите участника для заметки или создайте без привязки:")
-	reply.ReplyMarkup = keyboards.SelectParticipantForNote(resp.Participants, nextCursor)
-	_, err = h.Bot.Send(reply)
+	go h.transcribeAndSave(context.Background(), msg, user, statusMsg.MessageID)
+
+	kb := keyboards.MainMenu(user.Role)
+	m := tgbotapi.NewMessage(msg.Chat.ID, "📋 Главное меню")
+	m.ReplyMarkup = kb
+	_, err = h.Bot.Send(m)
 	return err
 }
 
-// HandleParticipantSelectedForNote handles participant selection callback during note creation.
-func (h *NotesHandler) HandleParticipantSelectedForNote(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, participantID string) error {
-	userCtx := h.States.Get(cb.From.ID)
-	userCtx.State = state.StateWritingNoteText
-	if participantID == "none" {
-		userCtx.PendingData = ""
-	} else {
-		userCtx.PendingData = participantID
+func (h *NotesHandler) transcribeAndSave(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, statusMsgID int) {
+	editStatus := func(text string) {
+		edit := tgbotapi.NewEditMessageText(msg.Chat.ID, statusMsgID, text)
+		_, _ = h.Bot.Send(edit)
 	}
-	h.States.Set(cb.From.ID, userCtx)
 
-	h.answerCallback(cb.ID, "")
+	fileID, format := voiceFileID(msg)
+	fileURL, err := h.Bot.GetFileDirectURL(fileID)
+	if err != nil {
+		slog.Error("get voice file url", "error", err)
+		editStatus("❌ Не удалось получить файл.")
+		return
+	}
 
-	reply := tgbotapi.NewMessage(cb.Message.Chat.ID, "✍️ Напишите текст заметки:")
-	reply.ReplyMarkup = keyboards.CancelKeyboard()
-	_, err := h.Bot.Send(reply)
-	return err
+	resp, err := http.Get(fileURL) //nolint:noctx
+	if err != nil {
+		slog.Error("download voice file", "error", err)
+		editStatus("❌ Не удалось скачать файл.")
+		return
+	}
+	defer resp.Body.Close()
+
+	var buf bytes.Buffer
+	if _, err = buf.ReadFrom(resp.Body); err != nil {
+		slog.Error("read voice file", "error", err)
+		editStatus("❌ Не удалось прочитать файл.")
+		return
+	}
+
+	text, err := h.Whisper.Transcribe(ctx, &buf, format)
+	if err != nil {
+		slog.Error("transcribe voice", "error", err)
+		editStatus("❌ Не удалось расшифровать сообщение.")
+		return
+	}
+	if text == "" {
+		text = "(тишина)"
+	}
+
+	_, err = h.Clients.Notes.CreateNote(ctx, &notesv1.CreateNoteRequest{
+		AuthorId: user.Id,
+		Text:     text,
+	})
+	if err != nil {
+		slog.Error("save transcribed note", "error", err)
+		editStatus("❌ Не удалось сохранить заметку.")
+		return
+	}
+
+	edit := tgbotapi.NewEditMessageText(msg.Chat.ID, statusMsgID,
+		fmt.Sprintf("✅ %s", EscapeMarkdown(text)))
+	edit.ParseMode = "MarkdownV2"
+	_, _ = h.Bot.Send(edit)
 }
 
-// HandleNoteText handles text input when user is writing a note.
+func voiceFileID(msg *tgbotapi.Message) (fileID, format string) {
+	if msg.Voice != nil {
+		return msg.Voice.FileID, "ogg"
+	}
+	return msg.VideoNote.FileID, "mp4"
+}
+
+// HandleNoteText handles text input when user is writing a note in StateWritingNoteText.
 func (h *NotesHandler) HandleNoteText(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
 	userCtx := h.States.Get(msg.From.ID)
 
@@ -83,125 +152,244 @@ func (h *NotesHandler) HandleNoteText(ctx context.Context, msg *tgbotapi.Message
 		Text:          msg.Text,
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось сохранить заметку.")
+		return h.SendError(msg.Chat.ID, "Не удалось сохранить заметку.")
 	}
 
 	h.States.Reset(msg.From.ID)
+	return h.SendPlain(msg.Chat.ID, "✅ Заметка сохранена!", keyboards.MainMenu(user.Role))
+}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "✅ Заметка сохранена!")
-	reply.ReplyMarkup = keyboards.MainMenu(user.Role)
-	_, err = h.Bot.Send(reply)
-	return err
+const notesPageSize = 10
+
+// handleNotesList is a shared helper for all notes list views.
+func (h *NotesHandler) handleNotesList(
+	ctx context.Context,
+	chatID int64, msgID int,
+	user *usersv1.User, userID int64,
+	notesCtx state.NotesContext,
+	participantID string,
+	title string,
+	backTo string,
+) error {
+	req := h.buildListRequest(user, notesCtx, participantID, "")
+
+	resp, err := h.Clients.Notes.ListNotes(ctx, req)
+	if err != nil {
+		return h.SendError(chatID, "Не удалось загрузить заметки.")
+	}
+
+	if len(resp.Notes) == 0 {
+		return h.EditMD(chatID, msgID, title+" — пусто\\.", menuKeyboard(user))
+	}
+
+	total, nextCursor := pageInfoFields(resp.PageInfo)
+
+	// Initialize pagination state.
+	h.States.Set(userID, &state.UserContext{
+		NotesCtx:    notesCtx,
+		PendingData: participantID,
+		PageCursors: []string{""},
+	})
+
+	kb := keyboards.NotesList(keyboards.NotesListOpts{
+		Notes:         resp.Notes,
+		NextCursor:    nextCursor,
+		Total:         total,
+		Offset:        0,
+		BackTo:        backTo,
+		HasPrevPage:   false,
+		ParticipantID: participantID,
+	})
+	return h.EditMD(chatID, msgID,
+		fmt.Sprintf("%s \\(%d\\)", title, total), &kb)
 }
 
 // HandleMyNotes shows the current user's notes.
-func (h *NotesHandler) HandleMyNotes(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
-	// Get unassigned count.
-	unassignedResp, err := h.Clients.Notes.ListNotes(ctx, &notesv1.ListNotesRequest{
-		AuthorId:       user.Id,
-		UnassignedOnly: true,
-		Pagination:     &commonv1.Pagination{Limit: 100},
-	})
-	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось загрузить заметки.")
-	}
-
-	text := "📋 *Мои заметки*\n\n"
-	if len(unassignedResp.Notes) > 0 {
-		text += fmt.Sprintf("📄 *Без участника:* %d заметок\n", len(unassignedResp.Notes))
-	}
-
-	// Get all notes for listing.
-	allResp, err := h.Clients.Notes.ListNotes(ctx, &notesv1.ListNotesRequest{
-		AuthorId:   user.Id,
-		Pagination: &commonv1.Pagination{Limit: 20},
-	})
-	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось загрузить заметки.")
-	}
-
-	nextCursor := ""
-	if allResp.PageInfo != nil && allResp.PageInfo.HasNext {
-		nextCursor = allResp.PageInfo.NextCursor
-	}
-
-	reply := tgbotapi.NewMessage(msg.Chat.ID, text)
-	reply.ParseMode = "Markdown"
-	reply.ReplyMarkup = keyboards.NotesList(allResp.Notes, nextCursor)
-	_, err = h.Bot.Send(reply)
-	return err
+func (h *NotesHandler) HandleMyNotes(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
+	return h.handleNotesList(ctx, cb.Message.Chat.ID, cb.Message.MessageID,
+		user, cb.From.ID, state.NotesCtxMy, "", "📋 *Мои заметки*", "back:menu")
 }
 
 // HandleAllNotes shows all notes (admin/root only).
-func (h *NotesHandler) HandleAllNotes(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
-	resp, err := h.Clients.Notes.ListNotes(ctx, &notesv1.ListNotesRequest{
-		AllNotes:   true,
-		Pagination: &commonv1.Pagination{Limit: 20},
-	})
+func (h *NotesHandler) HandleAllNotes(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
+	return h.handleNotesList(ctx, cb.Message.Chat.ID, cb.Message.MessageID,
+		user, cb.From.ID, state.NotesCtxAll, "", "📊 *Все заметки*", "back:menu")
+}
+
+// HandleUnassignedNotes shows unassigned notes.
+func (h *NotesHandler) HandleUnassignedNotes(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
+	h.AnswerCallback(cb.ID, "")
+	return h.handleNotesList(ctx, cb.Message.Chat.ID, cb.Message.MessageID,
+		user, cb.From.ID, state.NotesCtxUnassigned, "", "📄 *Заметки без участника*", "back:notes")
+}
+
+// HandleNotesByParticipant shows notes for a participant.
+func (h *NotesHandler) HandleNotesByParticipant(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, participantID string) error {
+	h.AnswerCallback(cb.ID, "")
+	backTo := "back:participant:" + participantID
+	return h.handleNotesList(ctx, cb.Message.Chat.ID, cb.Message.MessageID,
+		user, cb.From.ID, state.NotesCtxParticipant, participantID,
+		"📋 *Заметки по участнику*", backTo)
+}
+
+// HandleNotesPageForward handles forward pagination.
+func (h *NotesHandler) HandleNotesPageForward(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, cursor string) error {
+	h.AnswerCallback(cb.ID, "")
+
+	userCtx := h.States.Get(cb.From.ID)
+	userCtx.PageCursors = append(userCtx.PageCursors, cursor)
+	h.States.Set(cb.From.ID, userCtx)
+
+	return h.renderNotesPage(ctx, cb, user, userCtx, cursor)
+}
+
+// HandleNotesPageBack handles backward pagination.
+func (h *NotesHandler) HandleNotesPageBack(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
+	h.AnswerCallback(cb.ID, "")
+
+	userCtx := h.States.Get(cb.From.ID)
+	if len(userCtx.PageCursors) > 1 {
+		userCtx.PageCursors = userCtx.PageCursors[:len(userCtx.PageCursors)-1]
+	}
+	h.States.Set(cb.From.ID, userCtx)
+
+	cursor := userCtx.PageCursors[len(userCtx.PageCursors)-1]
+	return h.renderNotesPage(ctx, cb, user, userCtx, cursor)
+}
+
+func (h *NotesHandler) renderNotesPage(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, userCtx *state.UserContext, cursor string) error {
+	req := h.buildListRequest(user, userCtx.NotesCtx, userCtx.PendingData, cursor)
+
+	resp, err := h.Clients.Notes.ListNotes(ctx, req)
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось загрузить заметки.")
+		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить заметки.")
 	}
 
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
+	total, nextCursor := pageInfoFields(resp.PageInfo)
+	pageIndex := len(userCtx.PageCursors) - 1
+	offset := int32(pageIndex) * notesPageSize
+
+	backTo := h.notesBackTo(userCtx)
+	participantID := ""
+	if userCtx.NotesCtx == state.NotesCtxParticipant {
+		participantID = userCtx.PendingData
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "📊 *Все заметки*")
-	reply.ParseMode = "Markdown"
-	reply.ReplyMarkup = keyboards.NotesList(resp.Notes, nextCursor)
-	_, err = h.Bot.Send(reply)
+	kb := keyboards.NotesList(keyboards.NotesListOpts{
+		Notes:         resp.Notes,
+		NextCursor:    nextCursor,
+		Total:         total,
+		Offset:        offset,
+		BackTo:        backTo,
+		HasPrevPage:   pageIndex > 0,
+		ParticipantID: participantID,
+	})
+	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, kb)
+	_, err = h.Bot.Send(edit)
 	return err
+}
+
+func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.NotesContext, participantID, cursor string) *notesv1.ListNotesRequest {
+	req := &notesv1.ListNotesRequest{
+		Pagination: &commonv1.Pagination{Limit: notesPageSize, Cursor: cursor},
+	}
+	switch notesCtx {
+	case state.NotesCtxMy:
+		req.AuthorId = user.Id
+	case state.NotesCtxAll:
+		req.AllNotes = true
+	case state.NotesCtxUnassigned:
+		req.AuthorId = user.Id
+		req.UnassignedOnly = true
+	case state.NotesCtxParticipant:
+		req.AuthorId = user.Id
+		req.ParticipantId = participantID
+	}
+	return req
+}
+
+func (h *NotesHandler) notesBackTo(userCtx *state.UserContext) string {
+	switch userCtx.NotesCtx {
+	case state.NotesCtxParticipant:
+		return "back:participant:" + userCtx.PendingData
+	case state.NotesCtxUnassigned:
+		return "back:notes"
+	default:
+		return "back:menu"
+	}
 }
 
 // HandleNoteView shows a single note.
 func (h *NotesHandler) HandleNoteView(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, noteID string) error {
-	h.answerCallback(cb.ID, "")
+	h.AnswerCallback(cb.ID, "")
 
 	n, err := h.Clients.Notes.GetNote(ctx, &notesv1.GetNoteRequest{Id: noteID})
 	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Заметка не найдена.")
+		return h.SendError(cb.Message.Chat.ID, "Заметка не найдена.")
 	}
 
-	text := fmt.Sprintf("📝 *Заметка*\n\n%s", escapeMarkdown(n.Text))
+	text := fmt.Sprintf("📝 *Заметка*\n\n%s", EscapeMarkdown(n.Text))
 	if n.ParticipantName != "" {
-		text = fmt.Sprintf("📝 *Заметка о %s*\n\n%s", escapeMarkdown(n.ParticipantName), escapeMarkdown(n.Text))
+		text = fmt.Sprintf("📝 *Заметка о %s*\n\n%s", EscapeMarkdown(n.ParticipantName), EscapeMarkdown(n.Text))
 	}
-	text += fmt.Sprintf("\n\n_Автор: %s_", escapeMarkdown(n.AuthorName))
+	text += fmt.Sprintf("\n\n_Автор: %s_", EscapeMarkdown(n.AuthorName))
 
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, text)
-	edit.ParseMode = "MarkdownV2"
-	edit.ReplyMarkup = &[]tgbotapi.InlineKeyboardMarkup{keyboards.NoteActions(noteID, n.ParticipantId != "")}[0]
-	_, err = h.Bot.Send(edit)
-	return err
+	kb := keyboards.NoteActions(noteID, n.ParticipantId != "", "back:notes")
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, &kb)
 }
 
 // HandleNoteDelete deletes a note.
 func (h *NotesHandler) HandleNoteDelete(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, noteID string) error {
 	_, err := h.Clients.Notes.DeleteNote(ctx, &notesv1.DeleteNoteRequest{Id: noteID})
 	if err != nil {
-		h.answerCallback(cb.ID, "Ошибка удаления")
+		h.AnswerCallback(cb.ID, "Ошибка удаления")
 		return err
 	}
-	h.answerCallback(cb.ID, "✅ Заметка удалена")
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "🗑 Заметка удалена.")
-	_, err = h.Bot.Send(edit)
-	return err
+	h.AnswerCallback(cb.ID, "✅ Заметка удалена")
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID,
+		"🗑 Заметка удалена\\.", menuKeyboard(user))
 }
 
-// HandleNoteAssignStart starts assigning a note to a participant.
+// HandleNoteAssignStart starts assigning a note to a participant by showing groups.
 func (h *NotesHandler) HandleNoteAssignStart(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, noteID string) error {
-	h.answerCallback(cb.ID, "")
+	h.AnswerCallback(cb.ID, "")
 	h.States.Set(cb.From.ID, &state.UserContext{
 		State:         state.StateAssigningNoteToParticipant,
 		PendingNoteID: noteID,
 	})
 
-	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
-		Pagination: &commonv1.Pagination{Limit: 10},
+	resp, err := h.Clients.Groups.ListGroups(ctx, &groupsv1.ListGroupsRequest{
+		Pagination: &commonv1.Pagination{Limit: 50},
 	})
 	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
+		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить отряды.")
+	}
+
+	if len(resp.Groups) == 0 {
+		return h.showParticipantsForAssign(ctx, cb, groupID(""), noteID)
+	}
+
+	kb := keyboards.GroupsListForAssign(resp.Groups, user.GroupId, noteID)
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Выберите отряд:")
+	edit.ReplyMarkup = &kb
+	_, err = h.Bot.Send(edit)
+	return err
+}
+
+// HandleGroupForNote shows participants from a group for note assignment.
+func (h *NotesHandler) HandleGroupForNote(ctx context.Context, cb *tgbotapi.CallbackQuery, _ *usersv1.User, gID string) error {
+	h.AnswerCallback(cb.ID, "")
+	userCtx := h.States.Get(cb.From.ID)
+	return h.showParticipantsForAssign(ctx, cb, groupID(gID), userCtx.PendingNoteID)
+}
+
+func (h *NotesHandler) showParticipantsForAssign(ctx context.Context, cb *tgbotapi.CallbackQuery, gID groupID, noteID string) error {
+	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
+		GroupId:    string(gID),
+		Pagination: &commonv1.Pagination{Limit: 20},
+	})
+	if err != nil {
+		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
 	}
 
 	nextCursor := ""
@@ -209,8 +397,8 @@ func (h *NotesHandler) HandleNoteAssignStart(ctx context.Context, cb *tgbotapi.C
 		nextCursor = resp.PageInfo.NextCursor
 	}
 
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Выберите участника для заметки:")
-	kb := keyboards.SelectParticipantForNote(resp.Participants, nextCursor)
+	kb := keyboards.SelectParticipantForNote(resp.Participants, nextCursor, noteID)
+	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Выберите участника:")
 	edit.ReplyMarkup = &kb
 	_, err = h.Bot.Send(edit)
 	return err
@@ -227,74 +415,16 @@ func (h *NotesHandler) HandleNoteAssignParticipant(ctx context.Context, cb *tgbo
 		ParticipantId: participantID,
 	})
 	if err != nil {
-		h.answerCallback(cb.ID, "Ошибка назначения")
+		h.AnswerCallback(cb.ID, "Ошибка назначения")
 		return err
 	}
-	h.answerCallback(cb.ID, "✅ Заметка назначена")
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "✅ Заметка назначена участнику.")
-	_, err = h.Bot.Send(edit)
-	return err
+	h.AnswerCallback(cb.ID, "✅ Заметка назначена")
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID,
+		"✅ Заметка назначена участнику\\.", menuKeyboard(user))
 }
 
-// HandleUnassignedNotes shows unassigned notes.
-func (h *NotesHandler) HandleUnassignedNotes(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
-	h.answerCallback(cb.ID, "")
-	resp, err := h.Clients.Notes.ListNotes(ctx, &notesv1.ListNotesRequest{
-		AuthorId:       user.Id,
-		UnassignedOnly: true,
-		Pagination:     &commonv1.Pagination{Limit: 20},
-	})
-	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Не удалось загрузить заметки.")
-	}
-
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
-	}
-
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "📄 *Заметки без участника*")
-	edit.ParseMode = "Markdown"
-	kb := keyboards.NotesList(resp.Notes, nextCursor)
-	edit.ReplyMarkup = &kb
-	_, err = h.Bot.Send(edit)
-	return err
-}
-
-// HandleNotesByParticipant shows notes for a participant.
-func (h *NotesHandler) HandleNotesByParticipant(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, participantID string) error {
-	h.answerCallback(cb.ID, "")
-	resp, err := h.Clients.Notes.ListNotes(ctx, &notesv1.ListNotesRequest{
-		AuthorId:      user.Id,
-		ParticipantId: participantID,
-		Pagination:    &commonv1.Pagination{Limit: 20},
-	})
-	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Не удалось загрузить заметки.")
-	}
-
-	nextCursor := ""
-	if resp.PageInfo != nil && resp.PageInfo.HasNext {
-		nextCursor = resp.PageInfo.NextCursor
-	}
-
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "📋 *Заметки по участнику*")
-	edit.ParseMode = "Markdown"
-	kb := keyboards.NotesList(resp.Notes, nextCursor)
-	edit.ReplyMarkup = &kb
-	_, err = h.Bot.Send(edit)
-	return err
-}
-
-func (h *NotesHandler) sendError(chatID int64, text string) error {
-	_, err := h.Bot.Send(tgbotapi.NewMessage(chatID, "❌ "+text))
-	return err
-}
-
-func (h *NotesHandler) answerCallback(callbackID, text string) {
-	cb := tgbotapi.NewCallback(callbackID, text)
-	_, _ = h.Bot.Request(cb)
-}
+// groupID is a typed string to avoid confusion between group ID and empty string.
+type groupID string
 
 func derefString(s *string) string {
 	if s == nil {
@@ -303,13 +433,17 @@ func derefString(s *string) string {
 	return *s
 }
 
-func escapeMarkdown(s string) string {
-	replacer := strings.NewReplacer(
-		"_", "\\_", "*", "\\*", "[", "\\[", "]", "\\]",
-		"(", "\\(", ")", "\\)", "~", "\\~", "`", "\\`",
-		">", "\\>", "#", "\\#", "+", "\\+", "-", "\\-",
-		"=", "\\=", "|", "\\|", "{", "\\{", "}", "\\}",
-		".", "\\.", "!", "\\!",
-	)
-	return replacer.Replace(s)
+func menuKeyboard(user *usersv1.User) *tgbotapi.InlineKeyboardMarkup {
+	kb := keyboards.MainMenu(user.Role)
+	return &kb
+}
+
+func pageInfoFields(pi *commonv1.PageInfo) (total int32, nextCursor string) {
+	if pi != nil {
+		total = pi.Total
+		if pi.HasNext {
+			nextCursor = pi.NextCursor
+		}
+	}
+	return
 }

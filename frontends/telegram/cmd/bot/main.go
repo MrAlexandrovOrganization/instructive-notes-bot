@@ -10,6 +10,7 @@ import (
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/bot"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/client"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/config"
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/whisper"
 )
 
 func main() {
@@ -28,7 +29,20 @@ func main() {
 	}
 	defer clients.Close()
 
-	b, err := bot.New(cfg.BotToken, clients, cfg.RootTelegramID)
+	var wc *whisper.Client
+	if cfg.WhisperAddr != "" {
+		wc, err = whisper.New(cfg.WhisperAddr)
+		if err != nil {
+			slog.Error("create whisper client", "error", err)
+			os.Exit(1)
+		}
+		defer wc.Close()
+		slog.Info("whisper transcription enabled", "addr", cfg.WhisperAddr)
+	} else {
+		slog.Info("whisper not configured — voice notes will be saved as placeholder")
+	}
+
+	b, err := bot.New(cfg.BotToken, clients, cfg.RootTelegramID, wc)
 	if err != nil {
 		slog.Error("create bot", "error", err)
 		os.Exit(1)

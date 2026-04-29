@@ -46,7 +46,7 @@ func (r *NotesRepo) selectWithJoins() *bun.SelectQuery {
 // Create inserts a new note.
 func (r *NotesRepo) Create(ctx context.Context, authorID string, participantID *string, text string) (*Note, error) {
 	n := &Note{AuthorID: authorID, ParticipantID: participantID, Text: text}
-	_, err := r.db.NewInsert().Model(n).Returning("id").Exec(ctx)
+	_, err := r.db.NewInsert().Model(n).ExcludeColumn("id").Returning("id").Exec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create note: %w", err)
 	}
@@ -127,6 +127,25 @@ func (r *NotesRepo) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// Count returns the total number of notes matching the filter (ignores Limit/Cursor).
+func (r *NotesRepo) Count(ctx context.Context, f ListFilter) (int32, error) {
+	q := r.db.NewSelect().TableExpr("notes AS n")
+	if !f.AllNotes && f.AuthorID != "" {
+		q = q.Where("n.author_id = ?", f.AuthorID)
+	}
+	if f.ParticipantID != "" {
+		q = q.Where("n.participant_id = ?", f.ParticipantID)
+	}
+	if f.UnassignedOnly {
+		q = q.Where("n.participant_id IS NULL")
+	}
+	n, err := q.Count(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count notes: %w", err)
+	}
+	return int32(n), nil
 }
 
 // AssignToParticipant sets the participant for a note.

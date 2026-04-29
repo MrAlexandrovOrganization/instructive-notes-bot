@@ -11,6 +11,7 @@ type Config struct {
 	BotToken       string
 	RootTelegramID int64
 	CoreGRPCAddr   string
+	WhisperAddr    string // optional; if empty, voice/video notes are not transcribed
 }
 
 // Load reads configuration from environment variables.
@@ -18,6 +19,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		BotToken:     getEnv("BOT_TOKEN", ""),
 		CoreGRPCAddr: getEnv("CORE_GRPC_ADDR", "localhost:50051"),
+		WhisperAddr:  getEnv("WHISPER_GRPC_ADDR", ""),
 	}
 	if cfg.BotToken == "" {
 		return nil, fmt.Errorf("BOT_TOKEN is required")

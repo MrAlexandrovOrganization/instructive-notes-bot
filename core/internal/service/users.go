@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/mrralexandrov/instructive-notes-bot/core/internal/repository"
 )
@@ -31,6 +32,7 @@ func (s *UsersService) GetOrCreate(ctx context.Context, telegramID int64, name, 
 	if err != nil {
 		return nil, false, fmt.Errorf("create user: %w", err)
 	}
+	slog.Info("user created", "user_id", created.ID, "telegram_id", telegramID, "name", name, "role", defaultRole)
 	return created, true, nil
 }
 

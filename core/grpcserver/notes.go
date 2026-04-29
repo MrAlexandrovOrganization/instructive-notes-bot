@@ -65,6 +65,11 @@ func (s *notesServer) ListNotes(ctx context.Context, req *notesv1.ListNotesReque
 		return nil, status.Errorf(codes.Internal, "list notes: %v", err)
 	}
 
+	total, err := s.svc.Count(ctx, f)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "count notes: %v", err)
+	}
+
 	protoNotes := make([]*notesv1.Note, 0, len(notes))
 	for _, n := range notes {
 		protoNotes = append(protoNotes, repoNoteToProto(n))
@@ -74,6 +79,7 @@ func (s *notesServer) ListNotes(ctx context.Context, req *notesv1.ListNotesReque
 		Notes: protoNotes,
 		PageInfo: &commonv1.PageInfo{
 			HasNext: len(notes) == f.Limit,
+			Total:   total,
 		},
 	}
 	if len(notes) > 0 && resp.PageInfo.HasNext {

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/mrralexandrov/instructive-notes-bot/core/internal/repository"
 )
@@ -25,7 +26,16 @@ func (s *NotesService) Create(ctx context.Context, authorID string, participantI
 	if text == "" {
 		return nil, fmt.Errorf("text is required")
 	}
-	return s.repo.Create(ctx, authorID, participantID, text)
+	n, err := s.repo.Create(ctx, authorID, participantID, text)
+	if err != nil {
+		return nil, err
+	}
+	pid := "<none>"
+	if participantID != nil {
+		pid = *participantID
+	}
+	slog.Info("note created", "note_id", n.ID, "author_id", authorID, "participant_id", pid)
+	return n, nil
 }
 
 // GetByID returns a note by ID.
@@ -52,6 +62,11 @@ func (s *NotesService) Update(ctx context.Context, id, text string) (*repository
 // Delete removes a note.
 func (s *NotesService) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
+}
+
+// Count returns the total number of notes matching the filter.
+func (s *NotesService) Count(ctx context.Context, f repository.ListFilter) (int32, error) {
+	return s.repo.Count(ctx, f)
 }
 
 // AssignToParticipant assigns a note to a participant.

@@ -1,0 +1,4 @@
+# gen/*
+tests/*
+# bin/*
+*.md

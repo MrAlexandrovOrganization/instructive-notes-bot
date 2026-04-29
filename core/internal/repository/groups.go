@@ -32,7 +32,7 @@ func NewGroupsRepo(db *bun.DB) *GroupsRepo {
 // Create inserts a new group.
 func (r *GroupsRepo) Create(ctx context.Context, name, description string) (*Group, error) {
 	g := &Group{Name: name, Description: description}
-	_, err := r.db.NewInsert().Model(g).Returning("*").Exec(ctx)
+	_, err := r.db.NewInsert().Model(g).ExcludeColumn("id").Returning("*").Exec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create group: %w", err)
 	}

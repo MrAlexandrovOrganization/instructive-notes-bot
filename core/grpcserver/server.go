@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -73,9 +74,22 @@ func (s *Server) Stop() {
 }
 
 func loggingInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	start := time.Now()
 	resp, err := handler(ctx, req)
+	dur := time.Since(start)
 	if err != nil {
-		slog.Error("gRPC error", "method", info.FullMethod, "error", err)
+		code := status.Code(err)
+		slog.Error("gRPC request failed",
+			"method", info.FullMethod,
+			"code", code,
+			"error", err,
+			"duration_ms", dur.Milliseconds(),
+		)
+	} else {
+		slog.Debug("gRPC request ok",
+			"method", info.FullMethod,
+			"duration_ms", dur.Milliseconds(),
+		)
 	}
 	return resp, err
 }

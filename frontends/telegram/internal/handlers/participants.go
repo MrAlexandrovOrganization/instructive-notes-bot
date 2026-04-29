@@ -7,13 +7,13 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
 	commonv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1"
 	groupsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/groups/v1"
 	mediav1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/media/v1"
 	participantsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/participants/v1"
 	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
-	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
-	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
 )
 
 // ParticipantsHandler handles participant-related interactions.
@@ -26,19 +26,26 @@ func NewParticipantsHandler(base *Base) *ParticipantsHandler {
 	return &ParticipantsHandler{Base: base}
 }
 
-// HandleParticipantsList shows the participants list.
-func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, groupID string) error {
+// HandleParticipantsList shows the participants list by editing the current message.
+func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, groupID, backTo string) error {
 	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
 		GroupId:    groupID,
 		Pagination: &commonv1.Pagination{Limit: 10},
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось загрузить участников.")
+		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
 	}
 
 	title := "👥 *Участники*"
 	if groupID != "" {
-		title = "👥 *Моя группа*"
+		title = "👥 *Мой отряд*"
+	}
+	if len(resp.Participants) == 0 {
+		if groupID != "" {
+			title = "👥 В вашем отряде нет участников\\."
+		} else {
+			title = "👥 Участников пока нет\\."
+		}
 	}
 
 	nextCursor := ""
@@ -46,46 +53,38 @@ func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, msg *t
 		nextCursor = resp.PageInfo.NextCursor
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, title)
-	reply.ParseMode = "Markdown"
-	reply.ReplyMarkup = keyboards.ParticipantsList(resp.Participants, nextCursor)
-	_, err = h.Bot.Send(reply)
-	return err
+	kb := keyboards.ParticipantsList(resp.Participants, nextCursor, user.Role, backTo)
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, title, &kb)
 }
 
 // HandleParticipantView shows a single participant.
 func (h *ParticipantsHandler) HandleParticipantView(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, participantID string) error {
-	h.answerCallback(cb.ID, "")
+	h.AnswerCallback(cb.ID, "")
 
 	p, err := h.Clients.Participants.GetParticipant(ctx, &participantsv1.GetParticipantRequest{Id: participantID})
 	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Участник не найден.")
+		return h.SendError(cb.Message.Chat.ID, "Участник не найден.")
 	}
 
-	text := fmt.Sprintf("👤 *%s*\n", escapeMarkdown(p.Name))
+	text := fmt.Sprintf("👤 *%s*\n", EscapeMarkdown(p.Name))
 	if p.GroupName != "" {
-		text += fmt.Sprintf("Группа: %s\n", escapeMarkdown(p.GroupName))
+		text += fmt.Sprintf("Отряд: %s\n", EscapeMarkdown(p.GroupName))
 	}
 	text += fmt.Sprintf("Заметок: %d", p.NotesCount)
 
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, text)
-	edit.ParseMode = "MarkdownV2"
 	kb := keyboards.ParticipantView(participantID, user.Role)
-	edit.ReplyMarkup = &kb
-	_, err = h.Bot.Send(edit)
-	return err
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, &kb)
 }
 
-// HandleParticipantPhoto shows or updates the photo for a participant.
+// HandleParticipantPhoto shows the photo if it exists, or asks to upload one.
 func (h *ParticipantsHandler) HandleParticipantPhoto(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, participantID string) error {
-	h.answerCallback(cb.ID, "")
+	h.AnswerCallback(cb.ID, "")
 
 	p, err := h.Clients.Participants.GetParticipant(ctx, &participantsv1.GetParticipantRequest{Id: participantID})
 	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Участник не найден.")
+		return h.SendError(cb.Message.Chat.ID, "Участник не найден.")
 	}
 
-	// If participant has a photo, show it.
 	if p.PhotoMediaId != "" {
 		mediaResp, err := h.Clients.Media.GetMedia(ctx, &mediav1.GetMediaRequest{Id: p.PhotoMediaId})
 		if err == nil {
@@ -96,17 +95,27 @@ func (h *ParticipantsHandler) HandleParticipantPhoto(ctx context.Context, cb *tg
 			photo.Caption = "📸 Фото: " + p.Name
 			_, _ = h.Bot.Send(photo)
 		}
+		// Show options: update photo or go back.
+		kb := keyboards.ParticipantPhotoView(participantID)
+		return h.SendPlain(cb.Message.Chat.ID, "Выберите действие:", kb)
 	}
 
-	// Ask to upload a new photo.
+	// No photo — ask to upload.
 	h.States.Set(cb.From.ID, &state.UserContext{
 		State:       state.StateUploadingPhoto,
 		PendingData: participantID,
 	})
-	reply := tgbotapi.NewMessage(cb.Message.Chat.ID, "Отправьте фото для участника:")
-	reply.ReplyMarkup = keyboards.CancelKeyboard()
-	_, err = h.Bot.Send(reply)
-	return err
+	return h.SendPlain(cb.Message.Chat.ID, "Отправьте фото для участника:", keyboards.CancelInline())
+}
+
+// HandleParticipantUpdatePhoto starts the photo upload flow (from the "Обновить фото" button).
+func (h *ParticipantsHandler) HandleParticipantUpdatePhoto(ctx context.Context, cb *tgbotapi.CallbackQuery, _ *usersv1.User, participantID string) error {
+	h.AnswerCallback(cb.ID, "")
+	h.States.Set(cb.From.ID, &state.UserContext{
+		State:       state.StateUploadingPhoto,
+		PendingData: participantID,
+	})
+	return h.SendPlain(cb.Message.Chat.ID, "Отправьте фото для участника:", keyboards.CancelInline())
 }
 
 // HandlePhotoUpload processes an uploaded photo.
@@ -116,57 +125,44 @@ func (h *ParticipantsHandler) HandlePhotoUpload(ctx context.Context, msg *tgbota
 	h.States.Reset(msg.From.ID)
 
 	if len(msg.Photo) == 0 {
-		reply := tgbotapi.NewMessage(msg.Chat.ID, "Пожалуйста, отправьте фото.")
-		reply.ReplyMarkup = keyboards.MainMenu(user.Role)
-		_, err := h.Bot.Send(reply)
-		return err
+		return h.SendPlain(msg.Chat.ID, "Пожалуйста, отправьте фото.", keyboards.MainMenu(user.Role))
 	}
 
-	// Use the largest photo size.
 	photo := msg.Photo[len(msg.Photo)-1]
 	fileURL, err := h.Bot.GetFileDirectURL(photo.FileID)
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось получить файл.")
+		return h.SendError(msg.Chat.ID, "Не удалось получить файл.")
 	}
 
-	// Download the photo bytes.
 	resp, err := downloadFile(fileURL)
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось скачать фото.")
+		return h.SendError(msg.Chat.ID, "Не удалось скачать фото.")
 	}
 
-	// Upload to media service.
 	mediaResp, err := h.Clients.Media.UploadMedia(ctx, &mediav1.UploadMediaRequest{
 		Data:         resp,
 		MimeType:     "image/jpeg",
 		OriginalName: photo.FileID + ".jpg",
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось сохранить фото.")
+		return h.SendError(msg.Chat.ID, "Не удалось сохранить фото.")
 	}
 
-	// Set photo on participant.
 	_, err = h.Clients.Participants.SetParticipantPhoto(ctx, &participantsv1.SetParticipantPhotoRequest{
 		ParticipantId: participantID,
 		MediaId:       mediaResp.Id,
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось обновить участника.")
+		return h.SendError(msg.Chat.ID, "Не удалось обновить участника.")
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "✅ Фото сохранено!")
-	reply.ReplyMarkup = keyboards.MainMenu(user.Role)
-	_, err = h.Bot.Send(reply)
-	return err
+	return h.SendPlain(msg.Chat.ID, "✅ Фото сохранено!", keyboards.MainMenu(user.Role))
 }
 
 // HandleAddParticipantName starts the add-participant flow by asking for name.
 func (h *ParticipantsHandler) HandleAddParticipantName(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) error {
 	h.States.SetState(msg.From.ID, state.StateAddingParticipantName)
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "Введите имя участника:")
-	reply.ReplyMarkup = keyboards.CancelKeyboard()
-	_, err := h.Bot.Send(reply)
-	return err
+	return h.SendPlain(msg.Chat.ID, "Введите имя участника:", keyboards.CancelInline())
 }
 
 // HandleParticipantNameInput handles the name input during participant creation.
@@ -177,16 +173,14 @@ func (h *ParticipantsHandler) HandleParticipantNameInput(ctx context.Context, ms
 		PendingData: name,
 	})
 
-	// Show groups to choose from.
 	resp, err := h.Clients.Groups.ListGroups(ctx, &groupsv1.ListGroupsRequest{})
 	if err != nil || len(resp.Groups) == 0 {
-		// Create without group.
 		return h.createParticipant(ctx, msg, user, name, "")
 	}
 
 	var rows [][]tgbotapi.InlineKeyboardButton
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("Без группы", "participant:group:none"),
+		tgbotapi.NewInlineKeyboardButtonData("Без отряда", "participant:group:none"),
 	))
 	for _, g := range resp.Groups {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
@@ -194,15 +188,12 @@ func (h *ParticipantsHandler) HandleParticipantNameInput(ctx context.Context, ms
 		))
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, "Выберите группу:")
-	reply.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, err = h.Bot.Send(reply)
-	return err
+	return h.SendPlain(msg.Chat.ID, "Выберите отряд:", tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
 // HandleParticipantGroupSelect handles group selection during participant creation.
 func (h *ParticipantsHandler) HandleParticipantGroupSelect(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, groupID string) error {
-	h.answerCallback(cb.ID, "")
+	h.AnswerCallback(cb.ID, "")
 	userCtx := h.States.Get(cb.From.ID)
 	name := userCtx.PendingData
 	h.States.Reset(cb.From.ID)
@@ -216,40 +207,40 @@ func (h *ParticipantsHandler) HandleParticipantGroupSelect(ctx context.Context, 
 		GroupId: groupID,
 	})
 	if err != nil {
-		return h.sendError(cb.Message.Chat.ID, "Не удалось создать участника.")
+		return h.SendError(cb.Message.Chat.ID, "Не удалось создать участника.")
 	}
 
-	text := fmt.Sprintf("✅ Участник *%s* создан!", escapeMarkdown(p.Name))
-	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, text)
-	edit.ParseMode = "MarkdownV2"
-	_, err = h.Bot.Send(edit)
-	return err
+	text := fmt.Sprintf("✅ Участник *%s* создан\\!", EscapeMarkdown(p.Name))
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, nil)
 }
 
-func (h *ParticipantsHandler) createParticipant(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User, name, groupID string) error {
+// HandleAddParticipantStart initiates participant creation from a callback.
+func (h *ParticipantsHandler) HandleAddParticipantStart(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) error {
+	h.AnswerCallback(cb.ID, "")
+	h.States.SetState(cb.From.ID, state.StateAddingParticipantName)
+	return h.SendPlain(cb.Message.Chat.ID, "Введите имя участника:", keyboards.CancelInline())
+}
+
+func (h *ParticipantsHandler) createParticipant(ctx context.Context, msg *tgbotapi.Message, _ *usersv1.User, name, groupID string) error {
 	h.States.Reset(msg.From.ID)
 	p, err := h.Clients.Participants.CreateParticipant(ctx, &participantsv1.CreateParticipantRequest{
 		Name:    name,
 		GroupId: groupID,
 	})
 	if err != nil {
-		return h.sendError(msg.Chat.ID, "Не удалось создать участника.")
+		return h.SendError(msg.Chat.ID, "Не удалось создать участника.")
 	}
 
-	reply := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("✅ Участник *%s* создан!", escapeMarkdown(p.Name)))
-	reply.ParseMode = "MarkdownV2"
-	reply.ReplyMarkup = keyboards.MainMenu(user.Role)
-	_, err = h.Bot.Send(reply)
-	return err
-}
-
-func (h *ParticipantsHandler) sendError(chatID int64, text string) error {
-	_, err := h.Bot.Send(tgbotapi.NewMessage(chatID, "❌ "+text))
-	return err
-}
-
-func (h *ParticipantsHandler) answerCallback(callbackID, text string) {
-	_, _ = h.Bot.Request(tgbotapi.NewCallback(callbackID, text))
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👤 Профиль участника", "participant:view:"+p.Id),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("👥 Участники", "menu:participants"),
+		),
+	)
+	text := fmt.Sprintf("✅ Участник *%s* создан\\!", EscapeMarkdown(p.Name))
+	return h.SendMD(msg.Chat.ID, text, kb)
 }
 
 func downloadFile(url string) ([]byte, error) {

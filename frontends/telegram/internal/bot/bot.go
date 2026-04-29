@@ -7,43 +7,66 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
-	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/client"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/handlers"
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/middleware"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
+	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/whisper"
+	commonv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1"
+	groupsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/groups/v1"
+	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
 )
+
+// msgHandler is the signature shared by all state-driven message handlers.
+type msgHandler func(context.Context, *tgbotapi.Message, *usersv1.User) error
 
 // Bot is the main bot dispatcher.
 type Bot struct {
-	api          *tgbotapi.BotAPI
-	auth         *middleware.AuthMiddleware
-	states       *state.Manager
-	startHandler *handlers.StartHandler
-	notesHandler *handlers.NotesHandler
-	partHandler  *handlers.ParticipantsHandler
-	adminHandler *handlers.AdminHandler
+	api           *tgbotapi.BotAPI
+	clients       *client.Clients
+	auth          *middleware.AuthMiddleware
+	states        *state.Manager
+	startHandler  *handlers.StartHandler
+	notesHandler  *handlers.NotesHandler
+	partHandler   *handlers.ParticipantsHandler
+	adminHandler  *handlers.AdminHandler
+	stateHandlers map[state.UserState]msgHandler
 }
 
 // New creates a new Bot instance.
-func New(token string, clients *client.Clients, rootTelegramID int64) (*Bot, error) {
+func New(token string, clients *client.Clients, rootTelegramID int64, wc *whisper.Client) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
 	}
 
 	states := state.NewManager()
-	base := handlers.NewBase(api, clients, states)
+	base := handlers.NewBase(api, clients, states, wc)
 
-	return &Bot{
+	nh := handlers.NewNotesHandler(base)
+	ph := handlers.NewParticipantsHandler(base)
+	ah := handlers.NewAdminHandler(base)
+
+	b := &Bot{
 		api:          api,
+		clients:      clients,
 		auth:         middleware.NewAuthMiddleware(clients, rootTelegramID),
 		states:       states,
 		startHandler: handlers.NewStartHandler(base),
-		notesHandler: handlers.NewNotesHandler(base),
-		partHandler:  handlers.NewParticipantsHandler(base),
-		adminHandler: handlers.NewAdminHandler(base),
-	}, nil
+		notesHandler: nh,
+		partHandler:  ph,
+		adminHandler: ah,
+	}
+	b.stateHandlers = map[state.UserState]msgHandler{
+		state.StateWritingNoteText:       nh.HandleNoteText,
+		state.StateUploadingPhoto:        ph.HandlePhotoUpload,
+		state.StateAddingParticipantName: ph.HandleParticipantNameInput,
+		state.StateAddingUserName:        ah.HandleUserNameInput,
+		state.StateAddingUserTelegramID:  ah.HandleUserTelegramIDInput,
+		state.StateAddingGroupName:       ah.HandleGroupNameInput,
+	}
+	return b, nil
 }
 
 // Run starts processing updates.
@@ -106,44 +129,10 @@ func (b *Bot) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) {
 	userCtx := b.states.Get(msg.From.ID)
 
-	// Handle cancel.
-	if msg.Text == "❌ Отмена" {
-		if err := b.startHandler.HandleCancel(ctx, msg, user); err != nil {
-			slog.Error("handle cancel", "error", err)
-		}
-		return
-	}
-
 	// Handle state-driven input first.
-	switch userCtx.State {
-	case state.StateWritingNoteText:
-		if err := b.notesHandler.HandleNoteText(ctx, msg, user); err != nil {
-			slog.Error("handle note text", "error", err)
-		}
-		return
-	case state.StateUploadingPhoto:
-		if err := b.partHandler.HandlePhotoUpload(ctx, msg, user); err != nil {
-			slog.Error("handle photo upload", "error", err)
-		}
-		return
-	case state.StateAddingParticipantName:
-		if err := b.partHandler.HandleParticipantNameInput(ctx, msg, user); err != nil {
-			slog.Error("handle participant name", "error", err)
-		}
-		return
-	case state.StateAddingUserName:
-		if err := b.adminHandler.HandleUserNameInput(ctx, msg, user); err != nil {
-			slog.Error("handle user name", "error", err)
-		}
-		return
-	case state.StateAddingUserTelegramID:
-		if err := b.adminHandler.HandleUserTelegramIDInput(ctx, msg, user); err != nil {
-			slog.Error("handle user telegram id", "error", err)
-		}
-		return
-	case state.StateAddingGroupName:
-		if err := b.adminHandler.HandleGroupNameInput(ctx, msg, user); err != nil {
-			slog.Error("handle group name", "error", err)
+	if handler, ok := b.stateHandlers[userCtx.State]; ok {
+		if err := handler(ctx, msg, user); err != nil {
+			slog.Error("handle state input", "state", userCtx.State, "error", err)
 		}
 		return
 	}
@@ -167,47 +156,18 @@ func (b *Bot) handleMessage(ctx context.Context, msg *tgbotapi.Message, user *us
 		return
 	}
 
-	// Handle keyboard buttons.
-	b.handleKeyboardText(ctx, msg, user)
-}
+	// Voice messages and video notes → transcribe and save as note.
+	if msg.Voice != nil || msg.VideoNote != nil {
+		if err := b.notesHandler.HandleVoiceNote(ctx, msg, user); err != nil {
+			slog.Error("handle voice note", "error", err)
+		}
+		return
+	}
 
-func (b *Bot) handleKeyboardText(ctx context.Context, msg *tgbotapi.Message, user *usersv1.User) {
-	switch msg.Text {
-	case "📝 Новая заметка":
-		if err := b.notesHandler.HandleNewNote(ctx, msg, user); err != nil {
-			slog.Error("handle new note", "error", err)
-		}
-	case "📋 Мои заметки":
-		if err := b.notesHandler.HandleMyNotes(ctx, msg, user); err != nil {
-			slog.Error("handle my notes", "error", err)
-		}
-	case "📋 Все заметки":
-		if isAdminOrRoot(user) {
-			if err := b.notesHandler.HandleAllNotes(ctx, msg, user); err != nil {
-				slog.Error("handle all notes", "error", err)
-			}
-		}
-	case "👥 Участники", "🔍 Все участники":
-		if err := b.partHandler.HandleParticipantsList(ctx, msg, user, ""); err != nil {
-			slog.Error("handle participants list", "error", err)
-		}
-	case "👥 Моя группа":
-		groupID := ""
-		if user.GroupId != "" {
-			groupID = user.GroupId
-		}
-		if err := b.partHandler.HandleParticipantsList(ctx, msg, user, groupID); err != nil {
-			slog.Error("handle my group", "error", err)
-		}
-	case "⚙️ Управление":
-		if isAdminOrRoot(user) {
-			if err := b.adminHandler.HandleAdminPanel(ctx, msg, user); err != nil {
-				slog.Error("handle admin panel", "error", err)
-			}
-		}
-	default:
-		if err := b.startHandler.HandleUnknownState(ctx, msg, user); err != nil {
-			slog.Error("handle unknown text", "error", err)
+	// Any free text without an active state is saved as a quick note.
+	if msg.Text != "" {
+		if err := b.notesHandler.HandleQuickNote(ctx, msg, user); err != nil {
+			slog.Error("handle quick note", "error", err)
 		}
 	}
 }
@@ -220,12 +180,24 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, us
 	}
 
 	switch parts[0] {
+	case "cancel":
+		b.states.Reset(cb.From.ID)
+		b.AnswerCallback(cb.ID, "Отменено")
+		edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID,
+			tgbotapi.NewInlineKeyboardMarkup())
+		_, _ = b.api.Send(edit)
+	case "menu":
+		b.handleMenuCallback(ctx, cb, user, parts)
+	case "back":
+		b.handleBackCallback(ctx, cb, user, parts)
 	case "participant":
 		b.handleParticipantCallback(ctx, cb, user, parts)
 	case "note":
 		b.handleNoteCallback(ctx, cb, user, parts)
 	case "notes":
 		b.handleNotesCallback(ctx, cb, user, parts)
+	case "group":
+		b.handleGroupCallback(ctx, cb, user, parts)
 	case "admin":
 		b.handleAdminCallback(ctx, cb, user, parts)
 	case "user":
@@ -235,11 +207,108 @@ func (b *Bot) handleCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, us
 	}
 }
 
+func (b *Bot) handleMenuCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
+	if len(parts) < 2 {
+		return
+	}
+	b.AnswerCallback(cb.ID, "")
+	switch parts[1] {
+	case "notes":
+		if err := b.notesHandler.HandleMyNotes(ctx, cb, user); err != nil {
+			slog.Error("handle my notes", "error", err)
+		}
+	case "all_notes":
+		if isAdminOrRoot(user) {
+			if err := b.notesHandler.HandleAllNotes(ctx, cb, user); err != nil {
+				slog.Error("handle all notes", "error", err)
+			}
+		}
+	case "participants":
+		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, "", "back:menu"); err != nil {
+			slog.Error("handle participants list", "error", err)
+		}
+	case "my_group":
+		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, user.GroupId, "back:menu"); err != nil {
+			slog.Error("handle my group", "error", err)
+		}
+	case "groups":
+		if isAdminOrRoot(user) {
+			b.handleBrowseGroups(ctx, cb)
+		}
+	case "admin":
+		if isAdminOrRoot(user) {
+			if err := b.adminHandler.HandleAdminPanel(ctx, cb, user); err != nil {
+				slog.Error("handle admin panel", "error", err)
+			}
+		}
+	}
+}
+
+func (b *Bot) handleBackCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
+	if len(parts) < 2 {
+		return
+	}
+	b.AnswerCallback(cb.ID, "")
+	switch parts[1] {
+	case "menu":
+		kb := keyboards.MainMenu(user.Role)
+		_ = b.startHandler.Base.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "📋 *Главное меню*", &kb)
+	case "notes":
+		if isAdminOrRoot(user) {
+			if err := b.notesHandler.HandleAllNotes(ctx, cb, user); err != nil {
+				slog.Error("back all notes", "error", err)
+			}
+		} else {
+			if err := b.notesHandler.HandleMyNotes(ctx, cb, user); err != nil {
+				slog.Error("back my notes", "error", err)
+			}
+		}
+	case "participants":
+		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, "", "back:menu"); err != nil {
+			slog.Error("back participants list", "error", err)
+		}
+	case "participant":
+		if len(parts) >= 3 {
+			if err := b.partHandler.HandleParticipantView(ctx, cb, user, parts[2]); err != nil {
+				slog.Error("back participant view", "error", err)
+			}
+		}
+	case "admin":
+		if isAdminOrRoot(user) {
+			if err := b.adminHandler.HandleAdminPanel(ctx, cb, user); err != nil {
+				slog.Error("back admin panel", "error", err)
+			}
+		}
+	case "groups":
+		if isAdminOrRoot(user) {
+			b.handleBrowseGroups(ctx, cb)
+		}
+	case "group_view":
+		// back:group_view:{groupID} — return to participants of a specific group
+		if len(parts) >= 3 && isAdminOrRoot(user) {
+			if err := b.partHandler.HandleParticipantsList(ctx, cb, user, parts[2], "back:groups"); err != nil {
+				slog.Error("back group view", "error", err)
+			}
+		}
+	}
+}
+
 func (b *Bot) handleParticipantCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
-	if len(parts) < 3 {
+	if len(parts) < 2 {
 		return
 	}
 	action := parts[1]
+
+	if action == "add" {
+		if err := b.partHandler.HandleAddParticipantStart(ctx, cb, user); err != nil {
+			slog.Error("add participant start", "error", err)
+		}
+		return
+	}
+
+	if len(parts) < 3 {
+		return
+	}
 	id := parts[2]
 
 	switch action {
@@ -261,15 +330,15 @@ func (b *Bot) handleParticipantCallback(ctx context.Context, cb *tgbotapi.Callba
 		if err := b.partHandler.HandleParticipantPhoto(ctx, cb, user, id); err != nil {
 			slog.Error("participant photo", "error", err)
 		}
+	case "update_photo":
+		if err := b.partHandler.HandleParticipantUpdatePhoto(ctx, cb, user, id); err != nil {
+			slog.Error("participant update photo", "error", err)
+		}
 	case "select":
 		userCtx := b.states.Get(cb.From.ID)
 		if userCtx.State == state.StateAssigningNoteToParticipant {
 			if err := b.notesHandler.HandleNoteAssignParticipant(ctx, cb, user, id); err != nil {
 				slog.Error("assign note participant", "error", err)
-			}
-		} else {
-			if err := b.notesHandler.HandleParticipantSelectedForNote(ctx, cb, user, id); err != nil {
-				slog.Error("select participant for note", "error", err)
 			}
 		}
 	case "group":
@@ -320,6 +389,27 @@ func (b *Bot) handleNotesCallback(ctx context.Context, cb *tgbotapi.CallbackQuer
 	}
 }
 
+// handleGroupCallback handles group:for_note:{groupID} and group:view:{groupID} callbacks.
+func (b *Bot) handleGroupCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
+	if len(parts) < 3 {
+		return
+	}
+	switch parts[1] {
+	case "for_note":
+		if err := b.notesHandler.HandleGroupForNote(ctx, cb, user, parts[2]); err != nil {
+			slog.Error("group for note", "error", err)
+		}
+	case "view":
+		// Admin browsing: show participants of a group.
+		if isAdminOrRoot(user) {
+			backTo := "back:groups"
+			if err := b.partHandler.HandleParticipantsList(ctx, cb, user, parts[2], backTo); err != nil {
+				slog.Error("group view participants", "error", err)
+			}
+		}
+	}
+}
+
 func (b *Bot) handleAdminCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
 	if !isAdminOrRoot(user) {
 		if _, err := b.api.Request(tgbotapi.NewCallback(cb.ID, "Нет доступа")); err != nil {
@@ -339,22 +429,82 @@ func (b *Bot) handleUserCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 	if !isAdminOrRoot(user) {
 		return
 	}
-	// user:role:{id}:{role}
-	if len(parts) >= 4 && parts[1] == "role" {
-		if err := b.adminHandler.HandleUserRoleUpdate(ctx, cb, user, parts[2], parts[3]); err != nil {
-			slog.Error("user role update", "error", err)
+	switch parts[1] {
+	case "role":
+		// user:role:{id}:{role}
+		if len(parts) >= 4 {
+			if err := b.adminHandler.HandleUserRoleUpdate(ctx, cb, user, parts[2], parts[3]); err != nil {
+				slog.Error("user role update", "error", err)
+			}
+		}
+	case "create_role":
+		// user:create_role:{role}
+		if len(parts) >= 3 {
+			if err := b.adminHandler.HandleUserCreateRole(ctx, cb, user, parts[2]); err != nil {
+				slog.Error("user create role", "error", err)
+			}
 		}
 	}
 }
 
+// handlePageCallback handles pagination callbacks.
+// Formats:
+//   - page:notes:f:{cursor}  — forward pagination
+//   - page:notes:b            — backward pagination
+//   - page:participants:{cursor}
+//   - page:select_participant:{cursor}
 func (b *Bot) handlePageCallback(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, parts []string) {
-	// Pagination: page:{section}:{cursor}
-	// For now, just acknowledge.
-	if _, err := b.api.Request(tgbotapi.NewCallback(cb.ID, "")); err != nil {
-		slog.Error("answer callback", "error", err)
+	if len(parts) < 3 {
+		b.AnswerCallback(cb.ID, "")
+		return
 	}
+
+	section := parts[1]
+	switch section {
+	case "notes":
+		direction := parts[2]
+		switch direction {
+		case "f":
+			// Forward: page:notes:f:{cursor}
+			cursor := ""
+			if len(parts) >= 4 {
+				cursor = parts[3]
+			}
+			if err := b.notesHandler.HandleNotesPageForward(ctx, cb, user, cursor); err != nil {
+				slog.Error("notes page forward", "error", err)
+			}
+		case "b":
+			// Backward: page:notes:b
+			if err := b.notesHandler.HandleNotesPageBack(ctx, cb, user); err != nil {
+				slog.Error("notes page back", "error", err)
+			}
+		default:
+			b.AnswerCallback(cb.ID, "")
+		}
+	default:
+		b.AnswerCallback(cb.ID, "")
+	}
+}
+
+// handleBrowseGroups shows groups for admin browsing.
+func (b *Bot) handleBrowseGroups(ctx context.Context, cb *tgbotapi.CallbackQuery) {
+	resp, err := b.clients.Groups.ListGroups(ctx, &groupsv1.ListGroupsRequest{
+		Pagination: &commonv1.Pagination{Limit: 50},
+	})
+	if err != nil {
+		slog.Error("browse groups", "error", err)
+		return
+	}
+
+	kb := keyboards.GroupsListForBrowse(resp.Groups)
+	_ = b.startHandler.Base.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "🏷 *Отряды*", &kb)
 }
 
 func isAdminOrRoot(user *usersv1.User) bool {
 	return user.Role == usersv1.Role_ROLE_ADMIN || user.Role == usersv1.Role_ROLE_ROOT
+}
+
+// AnswerCallback answers a callback query with an optional toast message.
+func (b *Bot) AnswerCallback(id, text string) {
+	_, _ = b.api.Request(tgbotapi.NewCallback(id, text))
 }

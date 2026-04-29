@@ -52,7 +52,7 @@ func (r *ParticipantsRepo) Create(ctx context.Context, name string, telegramID *
 		CustomIdentifier: customID,
 		GroupID:          groupID,
 	}
-	_, err := r.db.NewInsert().Model(p).Returning("*").Exec(ctx)
+	_, err := r.db.NewInsert().Model(p).ExcludeColumn("id").Returning("*").Exec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create participant: %w", err)
 	}

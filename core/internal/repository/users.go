@@ -67,7 +67,7 @@ func (r *UsersRepo) CreateUser(ctx context.Context, telegramID int64, name, user
 		Username:   username,
 		Role:       role,
 	}
-	_, err := r.db.NewInsert().Model(u).Returning("*").Exec(ctx)
+	_, err := r.db.NewInsert().Model(u).ExcludeColumn("id").Returning("*").Exec(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}

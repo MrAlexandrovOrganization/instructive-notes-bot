@@ -6,39 +6,37 @@ import (
 	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
 )
 
-// MainMenu returns the role-aware main menu keyboard.
-func MainMenu(role usersv1.Role) tgbotapi.ReplyKeyboardMarkup {
+// MainMenu returns the role-aware main menu as an inline keyboard.
+func MainMenu(role usersv1.Role) tgbotapi.InlineKeyboardMarkup {
 	switch role {
 	case usersv1.Role_ROLE_ADMIN, usersv1.Role_ROLE_ROOT:
-		return tgbotapi.NewReplyKeyboard(
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("👥 Участники"),
-				tgbotapi.NewKeyboardButton("📝 Новая заметка"),
+		return tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("👥 Участники", "menu:participants"),
+				tgbotapi.NewInlineKeyboardButtonData("🏷 Отряды", "menu:groups"),
 			),
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("📋 Все заметки"),
-				tgbotapi.NewKeyboardButton("⚙️ Управление"),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📋 Все заметки", "menu:all_notes"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("⚙️ Управление", "menu:admin"),
 			),
 		)
 	case usersv1.Role_ROLE_CURATOR:
-		return tgbotapi.NewReplyKeyboard(
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("👥 Моя группа"),
-				tgbotapi.NewKeyboardButton("📝 Новая заметка"),
+		return tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("👥 Мой отряд", "menu:my_group"),
+				tgbotapi.NewInlineKeyboardButtonData("🔍 Все участники", "menu:participants"),
 			),
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("📋 Мои заметки"),
-				tgbotapi.NewKeyboardButton("🔍 Все участники"),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📋 Мои заметки", "menu:notes"),
 			),
 		)
 	default: // ORGANIZER
-		return tgbotapi.NewReplyKeyboard(
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("📝 Новая заметка"),
-				tgbotapi.NewKeyboardButton("👥 Участники"),
-			),
-			tgbotapi.NewKeyboardButtonRow(
-				tgbotapi.NewKeyboardButton("📋 Мои заметки"),
+		return tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("👥 Участники", "menu:participants"),
+				tgbotapi.NewInlineKeyboardButtonData("📋 Мои заметки", "menu:notes"),
 			),
 		)
 	}
@@ -49,23 +47,10 @@ func AdminPanel() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("👥 Пользователи", "admin:users"),
-			tgbotapi.NewInlineKeyboardButtonData("🏷 Группы", "admin:groups"),
+			tgbotapi.NewInlineKeyboardButtonData("🏷 Отряды", "admin:groups"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📊 Все заметки", "admin:all_notes"),
-			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить пользователя", "admin:add_user"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить группу", "admin:add_group"),
-		),
-	)
-}
-
-// CancelKeyboard returns a simple cancel keyboard.
-func CancelKeyboard() tgbotapi.ReplyKeyboardMarkup {
-	return tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("❌ Отмена"),
+			tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:menu"),
 		),
 	)
 }
