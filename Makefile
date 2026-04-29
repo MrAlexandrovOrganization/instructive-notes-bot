@@ -1,6 +1,7 @@
 .PHONY: setup proto test up down build lint migrate
 
 DOCKER_COMPOSE = docker compose
+WHISPER_PROTO_SRC ?= ../../backends/transcriber/proto/whisper.proto
 
 # Tools
 BUF := buf
@@ -27,18 +28,17 @@ install:
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
+# Sync whisper.proto from the canonical source (backends/transcriber), then regenerate.
 proto:
-	@echo "Generating proto..."
-	@if command -v $(BUF) >/dev/null 2>&1; then \
-		$(BUF) generate; \
+	@echo "Syncing whisper.proto from $(WHISPER_PROTO_SRC)..."
+	@if echo "$(WHISPER_PROTO_SRC)" | grep -qE "^https?://"; then \
+		curl -sSfL "$(WHISPER_PROTO_SRC)" -o proto/whisper/whisper.proto; \
 	else \
-		mkdir -p gen/go && protoc \
-			--proto_path=proto \
-			--go_out=gen/go --go_opt=paths=source_relative \
-			--go-grpc_out=gen/go --go-grpc_opt=paths=source_relative \
-			common/v1/common.proto users/v1/users.proto groups/v1/groups.proto \
-			participants/v1/participants.proto notes/v1/notes.proto media/v1/media.proto; \
+		cp "$(WHISPER_PROTO_SRC)" proto/whisper/whisper.proto; \
 	fi
+	@sed -i.bak 's|option go_package = "[^"]*";|option go_package = "notes-bot/proto/whisper";|' proto/whisper/whisper.proto
+	@rm -f proto/whisper/whisper.proto.bak
+	buf generate
 
 proto-lint:
 	$(BUF) lint proto

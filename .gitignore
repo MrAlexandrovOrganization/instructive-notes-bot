@@ -22,3 +22,5 @@ Thumbs.db
 
 # Docker volumes (local dev)
 data/
+
+*pb.go
