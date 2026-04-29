@@ -66,8 +66,7 @@ migrate:
 	$(DOCKER_COMPOSE) exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
 
 deploy:
-	$(DOCKER_COMPOSE) build --no-cache
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_COMPOSE) up --build -d
 
 tidy:
 	go mod tidy
