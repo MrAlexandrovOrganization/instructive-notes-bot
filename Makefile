@@ -1,5 +1,8 @@
 .PHONY: setup proto test up down build lint migrate
 
+DOCKER_COMPOSE = docker compose
+WHISPER_PROTO_SRC ?= ../../backends/transcriber/proto/whisper.proto
+
 # Tools
 BUF := buf
 GOLANGCI := golangci-lint
@@ -17,21 +20,28 @@ setup:
 	go install github.com/pressly/goose/v3/cmd/goose@latest
 	pre-commit install || true
 
+# Install all dev tools: buf + Go protoc plugins.
+# buf install: https://buf.build/docs/installation
+#   macOS: brew install bufbuild/buf/buf
+install:
+	go install github.com/bufbuild/buf/cmd/buf@v1.67.0
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+
+# Sync whisper.proto from the canonical source (backends/transcriber), then regenerate.
 proto:
-	@echo "Generating proto..."
-	@if command -v $(BUF) >/dev/null 2>&1; then \
-		$(BUF) generate; \
+	@echo "Syncing whisper.proto from $(WHISPER_PROTO_SRC)..."
+	@if echo "$(WHISPER_PROTO_SRC)" | grep -qE "^https?://"; then \
+		curl -sSfL "$(WHISPER_PROTO_SRC)" -o proto/whisper/whisper.proto; \
 	else \
-		mkdir -p gen/go && protoc \
-			--proto_path=proto \
-			--go_out=gen/go --go_opt=paths=source_relative \
-			--go-grpc_out=gen/go --go-grpc_opt=paths=source_relative \
-			common/v1/common.proto users/v1/users.proto groups/v1/groups.proto \
-			participants/v1/participants.proto notes/v1/notes.proto media/v1/media.proto; \
+		cp "$(WHISPER_PROTO_SRC)" proto/whisper/whisper.proto; \
 	fi
+	@sed -i.bak 's|option go_package = "[^"]*";|option go_package = "notes-bot/proto/whisper";|' proto/whisper/whisper.proto
+	@rm -f proto/whisper/whisper.proto.bak
+	buf generate
 
 proto-lint:
-	$(BUF) lint
+	$(BUF) lint proto
 
 test:
 	go test ./... -race -coverprofile=coverage.out
@@ -51,21 +61,20 @@ build-telegram:
 
 build: build-core build-telegram
 
-up:
-	docker-compose up -d --build
+up: proto
+	$(DOCKER_COMPOSE) up -d --build
 
 down:
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 logs:
-	docker-compose logs -f
+	$(DOCKER_COMPOSE) logs -f
 
 migrate:
-	docker-compose exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
+	$(DOCKER_COMPOSE) exec core goose -dir /app/internal/db/migrations postgres "$$DATABASE_URL" up
 
-deploy:
-	git pull
-	docker-compose up -d --build
+deploy: proto
+	$(DOCKER_COMPOSE) up --build -d
 
 tidy:
 	go mod tidy
