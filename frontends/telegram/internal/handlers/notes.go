@@ -179,7 +179,18 @@ func (h *NotesHandler) handleNotesList(
 	}
 
 	if len(resp.Notes) == 0 {
-		return h.EditMD(chatID, msgID, title+" — пусто\\.", menuKeyboard(user))
+		emptyText := title + "\n\nЗаметок пока нет\\. Просто отправьте текст — он сохранится как заметка\\."
+		var rows [][]tgbotapi.InlineKeyboardButton
+		if participantID != "" {
+			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✍️ Написать заметку", "participant:note:"+participantID),
+			))
+		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", backTo),
+		))
+		kb := tgbotapi.NewInlineKeyboardMarkup(rows...)
+		return h.EditMD(chatID, msgID, emptyText, &kb)
 	}
 
 	total, nextCursor := pageInfoFields(resp.PageInfo)
