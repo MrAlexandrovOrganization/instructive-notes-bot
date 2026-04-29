@@ -283,9 +283,9 @@ func (h *NotesHandler) HandleNotesPage(ctx context.Context, cb *tgbotapi.Callbac
 		ParticipantID: participantID,
 		PageSize:      notesPageSize,
 	})
-	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, kb)
-	_, err = h.Bot.Send(edit)
-	return err
+	title := h.notesTitle(userCtx)
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID,
+		fmt.Sprintf("%s \\(%d\\)", title, total), &kb)
 }
 
 func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.NotesContext, participantID string, offset int32) *notesv1.ListNotesRequest {
@@ -316,6 +316,19 @@ func (h *NotesHandler) buildListRequest(user *usersv1.User, notesCtx state.Notes
 	return req
 }
 
+func (h *NotesHandler) notesTitle(userCtx *state.UserContext) string {
+	switch userCtx.NotesCtx {
+	case state.NotesCtxAll:
+		return "📊 *Все заметки*"
+	case state.NotesCtxUnassigned:
+		return "📄 *Заметки без участника*"
+	case state.NotesCtxParticipant:
+		return "📋 *Заметки по участнику*"
+	default:
+		return "📋 *Мои заметки*"
+	}
+}
+
 func (h *NotesHandler) notesBackTo(userCtx *state.UserContext) string {
 	switch userCtx.NotesCtx {
 	case state.NotesCtxParticipant:
@@ -342,7 +355,7 @@ func (h *NotesHandler) HandleNoteView(ctx context.Context, cb *tgbotapi.Callback
 	}
 	text += fmt.Sprintf("\n\n_Автор: %s_", EscapeMarkdown(n.AuthorName))
 
-	kb := keyboards.NoteActions(noteID, n.ParticipantId != "", "back:notes")
+	kb := keyboards.NoteActions(noteID, n.ParticipantId != "", "back:notes_list")
 	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, &kb)
 }
 

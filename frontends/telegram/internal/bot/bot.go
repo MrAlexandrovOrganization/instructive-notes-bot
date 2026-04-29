@@ -265,6 +265,11 @@ func (b *Bot) handleBackCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 				slog.Error("back my notes", "error", err)
 			}
 		}
+	case "notes_list":
+		// Return to the current notes list based on saved context.
+		if err := b.notesHandler.HandleNotesPage(ctx, cb, user, 0); err != nil {
+			slog.Error("back notes list", "error", err)
+		}
 	case "participants":
 		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, "", "back:menu"); err != nil {
 			slog.Error("back participants list", "error", err)
