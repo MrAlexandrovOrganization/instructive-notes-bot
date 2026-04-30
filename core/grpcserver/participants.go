@@ -36,7 +36,7 @@ func (s *participantsServer) CreateParticipant(ctx context.Context, req *partici
 		groupID = &req.GroupId
 	}
 
-	p, err := s.svc.Create(ctx, req.Name, telegramID, customID, groupID)
+	p, err := s.svc.Create(ctx, req.Name, telegramID, req.TelegramUsername, customID, groupID)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "create participant: %v", err)
 	}
@@ -97,7 +97,7 @@ func (s *participantsServer) UpdateParticipant(ctx context.Context, req *partici
 		groupID = &req.GroupId
 	}
 
-	p, err := s.svc.Update(ctx, req.Id, req.Name, telegramID, customID, groupID)
+	p, err := s.svc.Update(ctx, req.Id, req.Name, telegramID, req.TelegramUsername, customID, groupID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "participant not found")
@@ -130,11 +130,12 @@ func (s *participantsServer) SetParticipantPhoto(ctx context.Context, req *parti
 
 func repoParticipantToProto(p *repository.Participant) *participantsv1.Participant {
 	proto := &participantsv1.Participant{
-		Id:         p.ID,
-		Name:       p.Name,
-		NotesCount: p.NotesCount,
-		CreatedAt:  p.CreatedAt.String(),
-		UpdatedAt:  p.UpdatedAt.String(),
+		Id:               p.ID,
+		Name:             p.Name,
+		TelegramUsername: p.TelegramUsername,
+		NotesCount:       p.NotesCount,
+		CreatedAt:        p.CreatedAt.String(),
+		UpdatedAt:        p.UpdatedAt.String(),
 	}
 	if p.TelegramID != nil {
 		proto.TelegramId = *p.TelegramID

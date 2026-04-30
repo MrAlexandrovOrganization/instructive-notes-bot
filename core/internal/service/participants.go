@@ -18,11 +18,11 @@ func NewParticipantsService(repo *repository.ParticipantsRepo) *ParticipantsServ
 }
 
 // Create creates a new participant.
-func (s *ParticipantsService) Create(ctx context.Context, name string, telegramID *int64, customID *string, groupID *string) (*repository.Participant, error) {
+func (s *ParticipantsService) Create(ctx context.Context, name string, telegramID *int64, telegramUsername string, customID *string, groupID *string) (*repository.Participant, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	return s.repo.Create(ctx, name, telegramID, customID, groupID)
+	return s.repo.Create(ctx, name, telegramID, telegramUsername, customID, groupID)
 }
 
 // GetByID returns a participant by ID.
@@ -39,11 +39,11 @@ func (s *ParticipantsService) List(ctx context.Context, groupID, search string, 
 }
 
 // Update modifies an existing participant.
-func (s *ParticipantsService) Update(ctx context.Context, id, name string, telegramID *int64, customID *string, groupID *string) (*repository.Participant, error) {
+func (s *ParticipantsService) Update(ctx context.Context, id, name string, telegramID *int64, telegramUsername string, customID *string, groupID *string) (*repository.Participant, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	return s.repo.Update(ctx, id, name, telegramID, customID, groupID)
+	return s.repo.Update(ctx, id, name, telegramID, telegramUsername, customID, groupID)
 }
 
 // Delete removes a participant.

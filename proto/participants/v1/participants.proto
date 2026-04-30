@@ -17,6 +17,7 @@ message Participant {
   int32 notes_count = 8;
   string created_at = 9;
   string updated_at = 10;
+  string telegram_username = 11;
 }
 
 message CreateParticipantRequest {
@@ -24,6 +25,7 @@ message CreateParticipantRequest {
   int64 telegram_id = 2;
   string custom_identifier = 3;
   string group_id = 4;
+  string telegram_username = 5;
 }
 
 message GetParticipantRequest {
@@ -47,6 +49,7 @@ message UpdateParticipantRequest {
   int64 telegram_id = 3;
   string custom_identifier = 4;
   string group_id = 5;
+  string telegram_username = 6;
 }
 
 message DeleteParticipantRequest {

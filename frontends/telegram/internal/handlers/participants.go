@@ -62,6 +62,9 @@ func (h *ParticipantsHandler) HandleParticipantView(ctx context.Context, cb *tgb
 	}
 
 	text := fmt.Sprintf("👤 *%s*\n", EscapeMarkdown(p.Name))
+	if p.TelegramUsername != "" {
+		text += fmt.Sprintf("Telegram: @%s\n", EscapeMarkdown(p.TelegramUsername))
+	}
 	if p.GroupName != "" {
 		text += fmt.Sprintf("Отряд: %s\n", EscapeMarkdown(p.GroupName))
 	}

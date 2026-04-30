@@ -16,6 +16,7 @@ type Participant struct {
 	ID               string    `bun:"id,pk"`
 	Name             string    `bun:"name"`
 	TelegramID       *int64    `bun:"telegram_id"`
+	TelegramUsername string    `bun:"telegram_username"`
 	CustomIdentifier *string   `bun:"custom_identifier"`
 	GroupID          *string   `bun:"group_id"`
 	PhotoMediaID     *string   `bun:"photo_media_id"`
@@ -45,10 +46,11 @@ func (r *ParticipantsRepo) selectWithJoins() *bun.SelectQuery {
 }
 
 // Create inserts a new participant.
-func (r *ParticipantsRepo) Create(ctx context.Context, name string, telegramID *int64, customID *string, groupID *string) (*Participant, error) {
+func (r *ParticipantsRepo) Create(ctx context.Context, name string, telegramID *int64, telegramUsername string, customID *string, groupID *string) (*Participant, error) {
 	p := &Participant{
 		Name:             name,
 		TelegramID:       telegramID,
+		TelegramUsername: telegramUsername,
 		CustomIdentifier: customID,
 		GroupID:          groupID,
 	}
@@ -90,10 +92,11 @@ func (r *ParticipantsRepo) List(ctx context.Context, groupID, search string, lim
 }
 
 // Update modifies an existing participant.
-func (r *ParticipantsRepo) Update(ctx context.Context, id, name string, telegramID *int64, customID *string, groupID *string) (*Participant, error) {
+func (r *ParticipantsRepo) Update(ctx context.Context, id, name string, telegramID *int64, telegramUsername string, customID *string, groupID *string) (*Participant, error) {
 	res, err := r.db.NewUpdate().TableExpr("participants").
 		Set("name = ?", name).
 		Set("telegram_id = ?", telegramID).
+		Set("telegram_username = ?", telegramUsername).
 		Set("custom_identifier = ?", customID).
 		Set("group_id = ?", groupID).
 		Set("updated_at = now()").
