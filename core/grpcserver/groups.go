@@ -51,9 +51,14 @@ func (s *groupsServer) ListGroups(ctx context.Context, req *groupsv1.ListGroupsR
 		offset = int(req.Pagination.Offset)
 	}
 
-	groups, err := s.svc.List(ctx, limit, offset)
+	groups, err := s.svc.List(ctx, limit+1, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list groups: %v", err)
+	}
+
+	hasNext := len(groups) > limit
+	if hasNext {
+		groups = groups[:limit]
 	}
 
 	protoGroups := make([]*groupsv1.Group, 0, len(groups))
@@ -64,7 +69,7 @@ func (s *groupsServer) ListGroups(ctx context.Context, req *groupsv1.ListGroupsR
 	resp := &groupsv1.ListGroupsResponse{
 		Groups: protoGroups,
 		PageInfo: &commonv1.PageInfo{
-			HasNext: len(groups) == limit,
+			HasNext: hasNext,
 		},
 	}
 	return resp, nil

@@ -64,9 +64,15 @@ func (s *participantsServer) ListParticipants(ctx context.Context, req *particip
 		offset = int(req.Pagination.Offset)
 	}
 
-	participants, err := s.svc.List(ctx, req.GroupId, req.Search, limit, offset)
+	// Fetch one extra to determine HasNext.
+	participants, err := s.svc.List(ctx, req.GroupId, req.Search, limit+1, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list participants: %v", err)
+	}
+
+	hasNext := len(participants) > limit
+	if hasNext {
+		participants = participants[:limit]
 	}
 
 	protoParticipants := make([]*participantsv1.Participant, 0, len(participants))
@@ -77,7 +83,7 @@ func (s *participantsServer) ListParticipants(ctx context.Context, req *particip
 	resp := &participantsv1.ListParticipantsResponse{
 		Participants: protoParticipants,
 		PageInfo: &commonv1.PageInfo{
-			HasNext: len(participants) == limit,
+			HasNext: hasNext,
 		},
 	}
 	return resp, nil

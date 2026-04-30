@@ -69,9 +69,14 @@ func (s *usersServer) ListUsers(ctx context.Context, req *usersv1.ListUsersReque
 		roleFilter = protoRoleToString(req.RoleFilter)
 	}
 
-	users, err := s.svc.List(ctx, roleFilter, limit, offset)
+	users, err := s.svc.List(ctx, roleFilter, limit+1, offset)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list users: %v", err)
+	}
+
+	hasNext := len(users) > limit
+	if hasNext {
+		users = users[:limit]
 	}
 
 	protoUsers := make([]*usersv1.User, 0, len(users))
@@ -82,7 +87,7 @@ func (s *usersServer) ListUsers(ctx context.Context, req *usersv1.ListUsersReque
 	resp := &usersv1.ListUsersResponse{
 		Users: protoUsers,
 		PageInfo: &commonv1.PageInfo{
-			HasNext: len(users) == limit,
+			HasNext: hasNext,
 		},
 	}
 	return resp, nil

@@ -274,6 +274,11 @@ func (b *Bot) handleBackCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, "", "back:menu"); err != nil {
 			slog.Error("back participants list", "error", err)
 		}
+	case "participants_list":
+		// Return to the current participants list based on saved context (page 0).
+		if err := b.partHandler.HandleParticipantsPage(ctx, cb, user, 0); err != nil {
+			slog.Error("back participants list page", "error", err)
+		}
 	case "participant":
 		if len(parts) >= 3 {
 			if err := b.partHandler.HandleParticipantView(ctx, cb, user, parts[2]); err != nil {
@@ -463,15 +468,30 @@ func (b *Bot) handlePageCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 		return
 	}
 
+	offset, err := strconv.Atoi(parts[2])
+	if err != nil {
+		b.AnswerCallback(cb.ID, "")
+		return
+	}
+
 	switch parts[1] {
 	case "notes":
-		offset, err := strconv.Atoi(parts[2])
-		if err != nil {
-			b.AnswerCallback(cb.ID, "")
-			return
-		}
 		if err := b.notesHandler.HandleNotesPage(ctx, cb, user, int32(offset)); err != nil {
 			slog.Error("notes page", "error", err)
+		}
+	case "participants":
+		if err := b.partHandler.HandleParticipantsPage(ctx, cb, user, int32(offset)); err != nil {
+			slog.Error("participants page", "error", err)
+		}
+	case "assign_participant":
+		if err := b.notesHandler.HandleAssignParticipantPage(ctx, cb, user, int32(offset)); err != nil {
+			slog.Error("assign participant page", "error", err)
+		}
+	case "users":
+		if isAdminOrRoot(user) {
+			if err := b.adminHandler.HandleUsersPage(ctx, cb, int32(offset)); err != nil {
+				slog.Error("users page", "error", err)
+			}
 		}
 	default:
 		b.AnswerCallback(cb.ID, "")

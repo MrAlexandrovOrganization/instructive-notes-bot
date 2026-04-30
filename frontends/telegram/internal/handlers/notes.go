@@ -407,16 +407,40 @@ func (h *NotesHandler) HandleGroupForNote(ctx context.Context, cb *tgbotapi.Call
 	return h.showParticipantsForAssign(ctx, cb, groupID(gID), userCtx.PendingNoteID)
 }
 
+const assignPageSize = 20
+
+// HandleAssignParticipantPage handles pagination for the assign-participant list.
+func (h *NotesHandler) HandleAssignParticipantPage(ctx context.Context, cb *tgbotapi.CallbackQuery, _ *usersv1.User, offset int32) error {
+	h.AnswerCallback(cb.ID, "")
+	userCtx := h.States.Get(cb.From.ID)
+	return h.renderAssignParticipants(ctx, cb, groupID(userCtx.PendingData2), userCtx.PendingNoteID, offset)
+}
+
 func (h *NotesHandler) showParticipantsForAssign(ctx context.Context, cb *tgbotapi.CallbackQuery, gID groupID, noteID string) error {
+	// Save group filter for pagination.
+	userCtx := h.States.Get(cb.From.ID)
+	userCtx.PendingData2 = string(gID)
+	h.States.Set(cb.From.ID, userCtx)
+	return h.renderAssignParticipants(ctx, cb, gID, noteID, 0)
+}
+
+func (h *NotesHandler) renderAssignParticipants(ctx context.Context, cb *tgbotapi.CallbackQuery, gID groupID, noteID string, offset int32) error {
 	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
 		GroupId:    string(gID),
-		Pagination: &commonv1.Pagination{Limit: 20},
+		Pagination: &commonv1.Pagination{Limit: assignPageSize, Offset: offset},
 	})
 	if err != nil {
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
 	}
 
-	kb := keyboards.SelectParticipantForNote(resp.Participants, "", noteID)
+	hasNext := resp.PageInfo != nil && resp.PageInfo.HasNext
+	kb := keyboards.SelectParticipantForNote(keyboards.SelectParticipantOpts{
+		Participants: resp.Participants,
+		NoteID:       noteID,
+		Offset:       offset,
+		HasNext:      hasNext,
+		PageSize:     assignPageSize,
+	})
 	edit := tgbotapi.NewEditMessageText(cb.Message.Chat.ID, cb.Message.MessageID, "Выберите участника:")
 	edit.ReplyMarkup = &kb
 	_, err = h.Bot.Send(edit)

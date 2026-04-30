@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/keyboards"
 	"github.com/mrralexandrov/instructive-notes-bot/frontends/telegram/internal/state"
+	commonv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/common/v1"
 	groupsv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/groups/v1"
 	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
 )
@@ -47,18 +47,29 @@ func (h *AdminHandler) HandleAdminCallback(ctx context.Context, cb *tgbotapi.Cal
 	}
 }
 
+const usersPageSize = 10
+
 func (h *AdminHandler) showUsers(ctx context.Context, cb *tgbotapi.CallbackQuery) error {
-	resp, err := h.Clients.Users.ListUsers(ctx, &usersv1.ListUsersRequest{})
+	return h.renderUsersPage(ctx, cb, 0)
+}
+
+// HandleUsersPage handles pagination for users list.
+func (h *AdminHandler) HandleUsersPage(ctx context.Context, cb *tgbotapi.CallbackQuery, offset int32) error {
+	h.AnswerCallback(cb.ID, "")
+	return h.renderUsersPage(ctx, cb, offset)
+}
+
+func (h *AdminHandler) renderUsersPage(ctx context.Context, cb *tgbotapi.CallbackQuery, offset int32) error {
+	resp, err := h.Clients.Users.ListUsers(ctx, &usersv1.ListUsersRequest{
+		Pagination: &commonv1.Pagination{Limit: usersPageSize, Offset: offset},
+	})
 	if err != nil {
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить пользователей.")
 	}
 
-	var sb strings.Builder
-	sb.WriteString("👥 *Пользователи*\n\n")
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, u := range resp.Users {
 		label := roleLabel(u.Role)
-		fmt.Fprintf(&sb, "• %s \\(@%s\\) — %s\n", EscapeMarkdown(u.Name), EscapeMarkdown(u.Username), EscapeMarkdown(label))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(
 				fmt.Sprintf("%s (%s)", u.Name, label),
@@ -66,16 +77,34 @@ func (h *AdminHandler) showUsers(ctx context.Context, cb *tgbotapi.CallbackQuery
 			),
 		))
 	}
-	text := sb.String()
+
+	// Pagination.
+	var navRow []tgbotapi.InlineKeyboardButton
+	if offset > 0 {
+		prevOffset := offset - usersPageSize
+		if prevOffset < 0 {
+			prevOffset = 0
+		}
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("page:users:%d", prevOffset)))
+	}
+	hasNext := resp.PageInfo != nil && resp.PageInfo.HasNext
+	if hasNext {
+		nextOffset := offset + int32(len(resp.Users))
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", fmt.Sprintf("page:users:%d", nextOffset)))
+	}
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 		tgbotapi.NewInlineKeyboardButtonData("➕ Добавить пользователя", "admin:add_user"),
 	))
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back:admin"),
+		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "back:admin"),
 	))
 
 	kb := tgbotapi.NewInlineKeyboardMarkup(rows...)
-	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, text, &kb)
+	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "👥 *Пользователи*", &kb)
 }
 
 func (h *AdminHandler) showGroups(ctx context.Context, cb *tgbotapi.CallbackQuery) error {

@@ -35,4 +35,8 @@ type UserContext struct {
 
 	// Pagination state for notes lists.
 	NotesCtx NotesContext // which notes list is active
+
+	// Pagination state for participants lists.
+	ParticipantsGroupID string // group filter ("" = all)
+	ParticipantsBackTo  string // back button destination
 }

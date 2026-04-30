@@ -26,11 +26,29 @@ func NewParticipantsHandler(base *Base) *ParticipantsHandler {
 	return &ParticipantsHandler{Base: base}
 }
 
+const participantsPageSize = 10
+
 // HandleParticipantsList shows the participants list by editing the current message.
 func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, groupID, backTo string) error {
+	// Save pagination context.
+	h.States.Set(cb.From.ID, &state.UserContext{
+		ParticipantsGroupID: groupID,
+		ParticipantsBackTo:  backTo,
+	})
+	return h.renderParticipantsPage(ctx, cb, user, groupID, backTo, 0)
+}
+
+// HandleParticipantsPage handles offset-based pagination for participants.
+func (h *ParticipantsHandler) HandleParticipantsPage(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, offset int32) error {
+	h.AnswerCallback(cb.ID, "")
+	userCtx := h.States.Get(cb.From.ID)
+	return h.renderParticipantsPage(ctx, cb, user, userCtx.ParticipantsGroupID, userCtx.ParticipantsBackTo, offset)
+}
+
+func (h *ParticipantsHandler) renderParticipantsPage(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User, groupID, backTo string, offset int32) error {
 	resp, err := h.Clients.Participants.ListParticipants(ctx, &participantsv1.ListParticipantsRequest{
 		GroupId:    groupID,
-		Pagination: &commonv1.Pagination{Limit: 10},
+		Pagination: &commonv1.Pagination{Limit: participantsPageSize, Offset: offset},
 	})
 	if err != nil {
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить участников.")
@@ -40,7 +58,7 @@ func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, cb *tg
 	if groupID != "" {
 		title = "👥 *Мой отряд*"
 	}
-	if len(resp.Participants) == 0 {
+	if len(resp.Participants) == 0 && offset == 0 {
 		if groupID != "" {
 			title = "👥 В вашем отряде нет участников\\."
 		} else {
@@ -48,7 +66,16 @@ func (h *ParticipantsHandler) HandleParticipantsList(ctx context.Context, cb *tg
 		}
 	}
 
-	kb := keyboards.ParticipantsList(resp.Participants, "", user.Role, backTo)
+	hasNext := resp.PageInfo != nil && resp.PageInfo.HasNext
+
+	kb := keyboards.ParticipantsList(keyboards.ParticipantsListOpts{
+		Participants: resp.Participants,
+		Role:         user.Role,
+		BackTo:       backTo,
+		Offset:       offset,
+		HasNext:      hasNext,
+		PageSize:     participantsPageSize,
+	})
 	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, title, &kb)
 }
 

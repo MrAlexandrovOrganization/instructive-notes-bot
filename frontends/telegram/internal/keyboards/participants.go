@@ -10,11 +10,20 @@ import (
 	usersv1 "github.com/mrralexandrov/instructive-notes-bot/gen/go/users/v1"
 )
 
+// ParticipantsListOpts configures the participants list keyboard.
+type ParticipantsListOpts struct {
+	Participants []*participantsv1.Participant
+	Role         usersv1.Role
+	BackTo       string
+	Offset       int32
+	HasNext      bool
+	PageSize     int32
+}
+
 // ParticipantsList returns an inline keyboard for listing participants.
-// backTo is the callback for the back button (e.g. "back:menu", "back:group_view:{id}").
-func ParticipantsList(participants []*participantsv1.Participant, nextCursor string, role usersv1.Role, backTo string) tgbotapi.InlineKeyboardMarkup {
+func ParticipantsList(opts ParticipantsListOpts) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, p := range participants {
+	for _, p := range opts.Participants {
 		label := p.Name
 		if p.GroupName != "" {
 			label += fmt.Sprintf(" (%s)", p.GroupName)
@@ -26,18 +35,32 @@ func ParticipantsList(participants []*participantsv1.Participant, nextCursor str
 			tgbotapi.NewInlineKeyboardButtonData(label, "participant:view:"+p.Id),
 		))
 	}
-	if nextCursor != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", "page:participants:"+nextCursor),
-		))
+
+	// Pagination row.
+	var navRow []tgbotapi.InlineKeyboardButton
+	if opts.Offset > 0 {
+		prevOffset := opts.Offset - opts.PageSize
+		if prevOffset < 0 {
+			prevOffset = 0
+		}
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("page:participants:%d", prevOffset)))
 	}
+	if opts.HasNext {
+		nextOffset := opts.Offset + int32(len(opts.Participants))
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", fmt.Sprintf("page:participants:%d", nextOffset)))
+	}
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+
+	role := opts.Role
 	if role == usersv1.Role_ROLE_ADMIN || role == usersv1.Role_ROLE_ROOT || role == usersv1.Role_ROLE_ORGANIZER || role == usersv1.Role_ROLE_CURATOR {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить участника", "participant:add"),
 		))
 	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", backTo),
+		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", opts.BackTo),
 	))
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
@@ -53,7 +76,7 @@ func ParticipantView(participantID string, _ usersv1.Role) tgbotapi.InlineKeyboa
 		),
 	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "back:participants"),
+		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "back:participants_list"),
 	))
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
@@ -71,7 +94,6 @@ func ParticipantPhotoView(participantID string) tgbotapi.InlineKeyboardMarkup {
 }
 
 // GroupsListForAssign returns an inline keyboard of groups for note assignment.
-// noteID is used for the back button to return to the note.
 func GroupsListForAssign(groups []*groupsv1.Group, userGroupID, noteID string) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 
@@ -103,11 +125,19 @@ func GroupsListForAssign(groups []*groupsv1.Group, userGroupID, noteID string) t
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
+// SelectParticipantOpts configures the participant selection keyboard for note assignment.
+type SelectParticipantOpts struct {
+	Participants []*participantsv1.Participant
+	NoteID       string
+	Offset       int32
+	HasNext      bool
+	PageSize     int32
+}
+
 // SelectParticipantForNote returns keyboard for selecting participant during note assignment.
-// noteID is used for the back button to return to group selection.
-func SelectParticipantForNote(participants []*participantsv1.Participant, nextCursor, noteID string) tgbotapi.InlineKeyboardMarkup {
+func SelectParticipantForNote(opts SelectParticipantOpts) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, p := range participants {
+	for _, p := range opts.Participants {
 		label := p.Name
 		if p.GroupName != "" {
 			label += fmt.Sprintf(" (%s)", p.GroupName)
@@ -116,13 +146,25 @@ func SelectParticipantForNote(participants []*participantsv1.Participant, nextCu
 			tgbotapi.NewInlineKeyboardButtonData(label, "participant:select:"+p.Id),
 		))
 	}
-	if nextCursor != "" {
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", "page:select_participant:"+nextCursor),
-		))
+
+	var navRow []tgbotapi.InlineKeyboardButton
+	if opts.Offset > 0 {
+		prevOffset := opts.Offset - opts.PageSize
+		if prevOffset < 0 {
+			prevOffset = 0
+		}
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", fmt.Sprintf("page:assign_participant:%d", prevOffset)))
 	}
+	if opts.HasNext {
+		nextOffset := opts.Offset + int32(len(opts.Participants))
+		navRow = append(navRow, tgbotapi.NewInlineKeyboardButtonData("➡️ Далее", fmt.Sprintf("page:assign_participant:%d", nextOffset)))
+	}
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "note:assign:"+noteID),
+		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "note:assign:"+opts.NoteID),
 	))
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
