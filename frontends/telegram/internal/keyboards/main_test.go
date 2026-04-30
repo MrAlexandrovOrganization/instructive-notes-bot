@@ -46,13 +46,13 @@ func TestMainMenu_CuratorHasMyGroup(t *testing.T) {
 	assert.NotContains(t, cbs, "menu:admin")
 }
 
-func TestMainMenu_OrganizerMinimal(t *testing.T) {
+func TestMainMenu_OrganizerHasGroups(t *testing.T) {
 	t.Parallel()
 	cbs := callbacksFrom(t, usersv1.Role_ROLE_ORGANIZER)
 	assert.Contains(t, cbs, "menu:participants")
+	assert.Contains(t, cbs, "menu:groups")
 	assert.Contains(t, cbs, "menu:notes")
 	assert.NotContains(t, cbs, "menu:admin")
-	assert.NotContains(t, cbs, "menu:groups")
 }
 
 func TestAdminPanel_HasUsersAndGroups(t *testing.T) {

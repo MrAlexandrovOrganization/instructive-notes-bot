@@ -34,30 +34,28 @@ func TestParticipantsList_ShowsGroupName(t *testing.T) {
 	assert.NotContains(t, kb.InlineKeyboard[1][0].Text, "📝")
 }
 
-func TestParticipantsList_AddButtonForAllRoles(t *testing.T) {
+func TestParticipantsList_AddButtonOnlyForAdmins(t *testing.T) {
 	t.Parallel()
-	roles := []usersv1.Role{
-		usersv1.Role_ROLE_ORGANIZER,
-		usersv1.Role_ROLE_CURATOR,
-		usersv1.Role_ROLE_ADMIN,
-		usersv1.Role_ROLE_ROOT,
-	}
-	for _, role := range roles {
+	hasAdd := func(role usersv1.Role) bool {
 		kb := keyboards.ParticipantsList(keyboards.ParticipantsListOpts{
 			Role:     role,
 			BackTo:   "back:menu",
 			PageSize: 10,
 		})
-		found := false
 		for _, row := range kb.InlineKeyboard {
 			for _, btn := range row {
 				if *btn.CallbackData == "participant:add" {
-					found = true
+					return true
 				}
 			}
 		}
-		assert.True(t, found, "role %v should have add button", role)
+		return false
 	}
+
+	assert.True(t, hasAdd(usersv1.Role_ROLE_ADMIN))
+	assert.True(t, hasAdd(usersv1.Role_ROLE_ROOT))
+	assert.False(t, hasAdd(usersv1.Role_ROLE_ORGANIZER))
+	assert.False(t, hasAdd(usersv1.Role_ROLE_CURATOR))
 }
 
 func TestParticipantsList_BackButtonUsesBackTo(t *testing.T) {
@@ -196,18 +194,32 @@ func TestSelectParticipantForNote_Pagination(t *testing.T) {
 	assert.Equal(t, "page:assign_participant:40", *navRow[1].CallbackData)
 }
 
-func TestGroupsListForBrowse_ClickableGroups(t *testing.T) {
+func TestGroupsListForBrowse_Admin(t *testing.T) {
 	t.Parallel()
 	groups := []*groupsv1.Group{
 		{Id: "g1", Name: "Отряд 1", Description: "Младшие"},
 		{Id: "g2", Name: "Отряд 2"},
 	}
-	kb := keyboards.GroupsListForBrowse(groups)
+	kb := keyboards.GroupsListForBrowse(groups, usersv1.Role_ROLE_ADMIN)
 
 	assert.Equal(t, "group:view:g1", *kb.InlineKeyboard[0][0].CallbackData)
 	assert.Contains(t, kb.InlineKeyboard[0][0].Text, "Младшие")
 	assert.Equal(t, "group:view:g2", *kb.InlineKeyboard[1][0].CallbackData)
+	// Admin: 2 groups + add + back = 4 rows.
 	require.Len(t, kb.InlineKeyboard, 4)
 	assert.Equal(t, "admin:add_group", *kb.InlineKeyboard[2][0].CallbackData)
-	assert.Equal(t, "back:admin", *kb.InlineKeyboard[3][0].CallbackData)
+	assert.Equal(t, "back:menu", *kb.InlineKeyboard[3][0].CallbackData)
+}
+
+func TestGroupsListForBrowse_Organizer_NoAddButton(t *testing.T) {
+	t.Parallel()
+	groups := []*groupsv1.Group{
+		{Id: "g1", Name: "Отряд 1"},
+	}
+	kb := keyboards.GroupsListForBrowse(groups, usersv1.Role_ROLE_ORGANIZER)
+
+	// Organizer: 1 group + back = 2 rows (no add button).
+	require.Len(t, kb.InlineKeyboard, 2)
+	assert.Equal(t, "group:view:g1", *kb.InlineKeyboard[0][0].CallbackData)
+	assert.Equal(t, "back:menu", *kb.InlineKeyboard[1][0].CallbackData)
 }

@@ -234,9 +234,7 @@ func (b *Bot) handleMenuCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 			slog.Error("handle my group", "error", err)
 		}
 	case "groups":
-		if isAdminOrRoot(user) {
-			b.handleBrowseGroups(ctx, cb)
-		}
+		b.handleBrowseGroups(ctx, cb, user)
 	case "admin":
 		if isAdminOrRoot(user) {
 			if err := b.adminHandler.HandleAdminPanel(ctx, cb, user); err != nil {
@@ -292,12 +290,10 @@ func (b *Bot) handleBackCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 			}
 		}
 	case "groups":
-		if isAdminOrRoot(user) {
-			b.handleBrowseGroups(ctx, cb)
-		}
+		b.handleBrowseGroups(ctx, cb, user)
 	case "group_view":
 		// back:group_view:{groupID} — return to participants of a specific group
-		if len(parts) >= 3 && isAdminOrRoot(user) {
+		if len(parts) >= 3 {
 			if err := b.partHandler.HandleParticipantsList(ctx, cb, user, parts[2], "back:groups"); err != nil {
 				slog.Error("back group view", "error", err)
 			}
@@ -413,12 +409,10 @@ func (b *Bot) handleGroupCallback(ctx context.Context, cb *tgbotapi.CallbackQuer
 			slog.Error("group for note", "error", err)
 		}
 	case "view":
-		// Admin browsing: show participants of a group.
-		if isAdminOrRoot(user) {
-			backTo := "back:groups"
-			if err := b.partHandler.HandleParticipantsList(ctx, cb, user, parts[2], backTo); err != nil {
-				slog.Error("group view participants", "error", err)
-			}
+		// Show participants of a group.
+		backTo := "back:groups"
+		if err := b.partHandler.HandleParticipantsList(ctx, cb, user, parts[2], backTo); err != nil {
+			slog.Error("group view participants", "error", err)
 		}
 	}
 }
@@ -498,8 +492,8 @@ func (b *Bot) handlePageCallback(ctx context.Context, cb *tgbotapi.CallbackQuery
 	}
 }
 
-// handleBrowseGroups shows groups for admin browsing.
-func (b *Bot) handleBrowseGroups(ctx context.Context, cb *tgbotapi.CallbackQuery) {
+// handleBrowseGroups shows groups for browsing participants.
+func (b *Bot) handleBrowseGroups(ctx context.Context, cb *tgbotapi.CallbackQuery, user *usersv1.User) {
 	resp, err := b.clients.Groups.ListGroups(ctx, &groupsv1.ListGroupsRequest{
 		Pagination: &commonv1.Pagination{Limit: 50},
 	})
@@ -508,7 +502,7 @@ func (b *Bot) handleBrowseGroups(ctx context.Context, cb *tgbotapi.CallbackQuery
 		return
 	}
 
-	kb := keyboards.GroupsListForBrowse(resp.Groups)
+	kb := keyboards.GroupsListForBrowse(resp.Groups, user.Role)
 	_ = b.startHandler.Base.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "🏷 *Отряды*", &kb)
 }
 

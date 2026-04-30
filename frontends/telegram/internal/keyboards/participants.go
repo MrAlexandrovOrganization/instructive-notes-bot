@@ -54,7 +54,7 @@ func ParticipantsList(opts ParticipantsListOpts) tgbotapi.InlineKeyboardMarkup {
 	}
 
 	role := opts.Role
-	if role == usersv1.Role_ROLE_ADMIN || role == usersv1.Role_ROLE_ROOT || role == usersv1.Role_ROLE_ORGANIZER || role == usersv1.Role_ROLE_CURATOR {
+	if role == usersv1.Role_ROLE_ADMIN || role == usersv1.Role_ROLE_ROOT {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить участника", "participant:add"),
 		))
@@ -170,7 +170,7 @@ func SelectParticipantForNote(opts SelectParticipantOpts) tgbotapi.InlineKeyboar
 }
 
 // GroupsListForBrowse returns an inline keyboard of groups for browsing participants.
-func GroupsListForBrowse(groups []*groupsv1.Group) tgbotapi.InlineKeyboardMarkup {
+func GroupsListForBrowse(groups []*groupsv1.Group, role usersv1.Role) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, g := range groups {
 		label := g.Name
@@ -181,11 +181,13 @@ func GroupsListForBrowse(groups []*groupsv1.Group) tgbotapi.InlineKeyboardMarkup
 			tgbotapi.NewInlineKeyboardButtonData(label, "group:view:"+g.Id),
 		))
 	}
+	if role == usersv1.Role_ROLE_ADMIN || role == usersv1.Role_ROLE_ROOT {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➕ Добавить отряд", "admin:add_group"),
+		))
+	}
 	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("➕ Добавить отряд", "admin:add_group"),
-	))
-	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "back:admin"),
+		tgbotapi.NewInlineKeyboardButtonData("↩️ Вернуться", "back:menu"),
 	))
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
 }

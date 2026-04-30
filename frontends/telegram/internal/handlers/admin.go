@@ -113,7 +113,7 @@ func (h *AdminHandler) showGroups(ctx context.Context, cb *tgbotapi.CallbackQuer
 		return h.SendError(cb.Message.Chat.ID, "Не удалось загрузить отряды.")
 	}
 
-	kb := keyboards.GroupsListForBrowse(resp.Groups)
+	kb := keyboards.GroupsListForBrowse(resp.Groups, usersv1.Role_ROLE_ADMIN)
 	return h.EditMD(cb.Message.Chat.ID, cb.Message.MessageID, "🏷 *Отряды*", &kb)
 }
 
