@@ -89,7 +89,8 @@ func (r *NotesRepo) List(ctx context.Context, f ListFilter) ([]*Note, error) {
 	if f.UnassignedOnly {
 		q = q.Where("n.participant_id IS NULL")
 	}
-	q = q.OrderExpr("n.created_at DESC").Limit(f.Limit).Offset(f.Offset)
+	// Unassigned first, then by newest.
+	q = q.OrderExpr("(n.participant_id IS NOT NULL), n.created_at DESC").Limit(f.Limit).Offset(f.Offset)
 	if err := q.Scan(ctx, &notes); err != nil {
 		return nil, fmt.Errorf("list notes: %w", err)
 	}

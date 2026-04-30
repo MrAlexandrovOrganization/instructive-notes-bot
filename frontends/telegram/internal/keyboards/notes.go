@@ -23,9 +23,11 @@ type NotesListOpts struct {
 func NotesList(opts NotesListOpts) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
 	for _, n := range opts.Notes {
-		// num := opts.Total - opts.Offset - int32(i)
-		// label := fmt.Sprintf("#%d %s", num, truncate(n.Text, 35))
-		label := fmt.Sprintf("%s", truncate(n.Text, 35))
+		icon := "📌" // unassigned
+		if n.ParticipantId != "" {
+			icon = "👤"
+		}
+		label := fmt.Sprintf("%s %s", icon, truncate(n.Text, 33))
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData(label, "note:view:"+n.Id),
 		))
