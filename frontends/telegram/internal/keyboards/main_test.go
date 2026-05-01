@@ -37,11 +37,11 @@ func TestMainMenu_RootSameAsAdmin(t *testing.T) {
 	assert.Equal(t, admin, root)
 }
 
-func TestMainMenu_CuratorHasMyGroup(t *testing.T) {
+func TestMainMenu_CuratorHasMyGroupAndGroups(t *testing.T) {
 	t.Parallel()
 	cbs := callbacksFrom(t, usersv1.Role_ROLE_CURATOR)
 	assert.Contains(t, cbs, "menu:my_group")
-	assert.Contains(t, cbs, "menu:participants")
+	assert.Contains(t, cbs, "menu:groups")
 	assert.Contains(t, cbs, "menu:notes")
 	assert.NotContains(t, cbs, "menu:admin")
 }

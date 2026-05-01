@@ -26,7 +26,7 @@ func MainMenu(role usersv1.Role) tgbotapi.InlineKeyboardMarkup {
 		return tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("👥 Мой отряд", "menu:my_group"),
-				tgbotapi.NewInlineKeyboardButtonData("🔍 Все участники", "menu:participants"),
+				tgbotapi.NewInlineKeyboardButtonData("🏷 Отряды", "menu:groups"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("📋 Мои заметки", "menu:notes"),
