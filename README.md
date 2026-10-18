@@ -1,4 +1,4 @@
-# telegram-bots__instructive-notes-bot
+# instructive-notes-bot
 
 ## Структура Compose
 
